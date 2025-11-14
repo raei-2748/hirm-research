@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import argparse
-import random
 import sys
 from pathlib import Path
 from typing import Any, Dict
@@ -31,16 +30,26 @@ def parse_args() -> argparse.Namespace:
 
 def run_episode(env_config: Dict[str, Any], seed: int, output_dir: Path, logger: ExperimentLogger) -> None:
     env = build_env(env_config)
-    state = env.reset()
-    logger.info(f"Initial state: {state}")
-    rng = random.Random(seed)
-    for step in range(env.episode_length):
-        action = [rng.gauss(0.0, 1.0) for _ in range(env.action_dim)]
-        transition = env.step(action)
+    split = env_config.get("split", "train")
+    episodes_to_sample = int(env_config.get("episodes", 1))
+    summaries = []
+    for episode_idx in range(episodes_to_sample):
+        episode = env.sample_episode(split=split)
         logger.info(
-            f"step={step} reward={transition.reward:.6f} info={transition.info} done={transition.done}"
+            f"episode={episode_idx} split={split} env_id={episode.env_id} horizon={len(episode.prices) - 1}"
         )
-    save_dict({"metrics": env.metrics}, output_dir / "metrics.json")
+        save_dict(
+            {
+                "prices": episode.prices,
+                "states": episode.states,
+                "pnl": episode.pnl,
+                "env_id": episode.env_id,
+                "meta": episode.meta,
+            },
+            output_dir / f"episode_{episode_idx}.json",
+        )
+        summaries.append({"env_id": episode.env_id, "split": split})
+    save_dict({"metrics": {"episodes": summaries}}, output_dir / "metrics.json")
 
 
 def main() -> None:

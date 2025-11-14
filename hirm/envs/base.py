@@ -1,67 +1,108 @@
-"""Environment abstractions."""
+"""Environment abstractions for hedging research episodes.
+
+This module defines lightweight dataclasses and base interfaces that all
+multi-regime environments must implement.  The environments correspond to the
+setups described in ``Invariant_Hedging_Research_Paper.md`` where an agent is
+trained and evaluated on episodes sampled from different market regimes (e.g.
+SPY historical windows or synthetic Heston worlds).  The base classes are kept
+framework agnostic on purpose: they only know how to describe and return
+episodes, without imposing any learning logic or reward definitions.
+"""
 from __future__ import annotations
 
 import abc
-from dataclasses import dataclass
-from typing import Dict, List, Sequence, Tuple
+from dataclasses import dataclass, field, replace
+from typing import Any, Dict, List, Mapping, Sequence
 
 
 @dataclass
-class Transition:
-    state: List[float]
-    reward: float
-    info: Dict[str, float]
-    done: bool
+class Episode:
+    """Container for a hedging episode.
+
+    Attributes
+    ----------
+    prices:
+        Underlying price path of length ``T + 1`` for a ``T`` step episode.  The
+        path can optionally include extra columns (e.g. multi-asset settings).
+    states:
+        Feature array aligned with ``prices``.  Feature engineering happens in
+        later phases, but the placeholder allows downstream code to consume a
+        consistent structure.
+    pnl:
+        Episode level profit-and-loss for a given strategy.  The environments in
+        this phase typically set it to ``0.0`` because hedging logic is not yet
+        plugged in, but the field exists so future components can reuse the
+        dataclass without changes.
+    env_id:
+        Identifier describing which environment/regime bucket produced the
+        episode (e.g. ``"train_low_vol"`` or ``"covid_crisis"``).
+    meta:
+        Free-form metadata such as dates, realized volatility, regime labels, or
+        simulation parameters.
+    """
+
+    prices: List[float]
+    states: List[List[float]]
+    pnl: float
+    env_id: str | int
+    meta: Dict[str, Any] = field(default_factory=dict)
 
 
-class BaseEnv(abc.ABC):
-    """Abstract environment for hedging experiments."""
+class Environment(abc.ABC):
+    """Abstract base class for hedging environments.
 
-    def __init__(self, state_dim: int, action_dim: int, episode_length: int) -> None:
-        self.state_dim = state_dim
-        self.action_dim = action_dim
-        self.episode_length = episode_length
-        self.current_step = 0
-        self.metrics: Dict[str, List[float]] = {
-            "returns": [],
-            "realized_vol": [],
-            "inventory": [],
+    Concrete subclasses generate price episodes that belong to specific regime
+    buckets.  Consumers interact with the environment purely through episode
+    sampling – there is no notion of an online ``reset``/``step`` API at this
+    layer.  This keeps the module decoupled from any reinforcement learning
+    framework and mirrors the offline construction described in the research
+    paper.
+    """
+
+    def __init__(self, split_env_ids: Mapping[str, Sequence[str]] | None = None) -> None:
+        self._split_env_ids: Dict[str, List[str]] = {
+            "train": [],
+            "val": [],
+            "test": [],
         }
-        self._state = [0.0 for _ in range(self.state_dim)]
+        if split_env_ids:
+            for split, env_ids in split_env_ids.items():
+                if split not in self._split_env_ids:
+                    raise ValueError(f"Unknown split '{split}'. Expected train/val/test.")
+                self._split_env_ids[split] = list(env_ids)
 
-    def reset(self) -> List[float]:
-        self.current_step = 0
-        for values in self.metrics.values():
-            values.clear()
-        self._state = self._initial_state()
-        return list(self._state)
+    @property
+    def split_env_ids(self) -> Mapping[str, Sequence[str]]:
+        """Return the environment identifiers available for each split."""
 
-    def step(self, action: Sequence[float]) -> Transition:
-        if len(action) != self.action_dim:
-            raise ValueError(
-                f"Action length {len(action)} incompatible with action_dim {self.action_dim}"
-            )
-        if self.current_step >= self.episode_length:
-            raise RuntimeError("Episode already finished. Call reset().")
-        state, reward, info = self._transition(action)
-        self._state = state
-        self.current_step += 1
-        done = self.current_step >= self.episode_length
-        self._track_metrics(info)
-        return Transition(state=list(state), reward=reward, info=info, done=done)
+        return {split: tuple(env_ids) for split, env_ids in self._split_env_ids.items()}
 
-    def _track_metrics(self, info: Dict[str, float]) -> None:
-        for key in self.metrics:
-            if key in info:
-                self.metrics[key].append(float(info[key]))
+    def available_env_ids(self, split: str) -> Sequence[str]:
+        if split not in self._split_env_ids:
+            raise ValueError(f"Unknown split '{split}'. Expected train/val/test.")
+        return tuple(self._split_env_ids[split])
 
     @abc.abstractmethod
-    def _initial_state(self) -> List[float]:
-        ...
+    def sample_episode(self, split: str = "train") -> Episode:
+        """Return a single episode drawn from the requested split."""
 
-    @abc.abstractmethod
-    def _transition(self, action: Sequence[float]) -> Tuple[List[float], float, Dict[str, float]]:
-        ...
+    def sample_episodes(self, n: int, split: str = "train") -> List[Episode]:
+        """Return ``n`` i.i.d. episodes for the requested split."""
+
+        if n <= 0:
+            raise ValueError("n must be positive")
+        return [self.sample_episode(split=split) for _ in range(n)]
+
+    # The helper lives on the base class so subclasses can share the cloning
+    # logic and avoid exposing mutable references to cached arrays.
+    @staticmethod
+    def _clone_episode(episode: Episode) -> Episode:
+        return replace(
+            episode,
+            prices=list(episode.prices),
+            states=[list(row) for row in episode.states],
+            meta=dict(episode.meta),
+        )
 
 
-__all__ = ["BaseEnv", "Transition"]
+__all__ = ["Episode", "Environment"]
