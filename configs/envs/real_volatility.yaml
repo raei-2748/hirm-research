@@ -1,0 +1,5 @@
+name: real_volatility_bands
+data_path: data/processed/spy_mock.csv
+horizon: 20
+transaction_cost: 0.0005
+seed: 0
