@@ -3,6 +3,8 @@ experiment:
 seed: 1234
 env:
   config_path: configs/envs/spy_real.yaml
-  episode_length: 8
+  horizon: 20
+  split: train
+  episodes: 1
 training:
   steps_per_episode: 8
