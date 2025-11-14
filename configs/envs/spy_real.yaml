@@ -1,0 +1,10 @@
+name: spy_real
+state_dim: 4
+action_dim: 1
+episode_length: 10
+data_path: data/processed/spy_features.csv
+feature_columns:
+  - return
+  - realized_vol
+  - liquidity
+  - inventory

@@ -1,0 +1,3 @@
+name: linear_stub
+representation_dim: 8
+decision_head_dim: 2

@@ -1,0 +1,8 @@
+experiment:
+  name: tiny_test
+seed: 1234
+env:
+  config_path: configs/envs/spy_real.yaml
+  episode_length: 8
+training:
+  steps_per_episode: 8
