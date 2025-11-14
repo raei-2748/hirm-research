@@ -4,12 +4,12 @@ from __future__ import annotations
 from typing import Any, Dict, Type
 
 from hirm.envs.base import Environment
-from hirm.envs.spy_real_env import SpyRealEnv
-from hirm.envs.synthetic_heston_env import SyntheticHestonEnv
+from hirm.envs.real import RealVolatilityBandEnv
+from hirm.envs.synthetic import SyntheticVolatilityBandEnv
 
 ENV_REGISTRY: Dict[str, Type[Environment]] = {
-    "spy_real": SpyRealEnv,
-    "synthetic_heston": SyntheticHestonEnv,
+    "real_volatility_bands": RealVolatilityBandEnv,
+    "synthetic_volatility_bands": SyntheticVolatilityBandEnv,
 }
 
 RESERVED_ENV_KEYS = {"split", "episodes"}

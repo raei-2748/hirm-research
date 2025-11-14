@@ -1,0 +1,5 @@
+name: synthetic_volatility_bands
+horizon: 20
+start_price: 100.0
+transaction_cost: 0.0005
+seed: 0

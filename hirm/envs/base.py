@@ -83,15 +83,27 @@ class Environment(abc.ABC):
         return tuple(self._split_env_ids[split])
 
     @abc.abstractmethod
-    def sample_episode(self, split: str = "train") -> Episode:
-        """Return a single episode drawn from the requested split."""
+    def sample_episode(self, split: str = "train", env_id: str | None = None) -> Episode:
+        """Return a single episode drawn from the requested split.
 
-    def sample_episodes(self, n: int, split: str = "train") -> List[Episode]:
+        Parameters
+        ----------
+        split:
+            Data split to sample from (``"train"``, ``"val"`` or ``"test"``).
+        env_id:
+            Optional environment identifier within the split.  When ``None`` a
+            random environment from the split is selected.  Subclasses that do
+            not differentiate between environments can ignore the argument.
+        """
+
+    def sample_episodes(
+        self, n: int, split: str = "train", env_id: str | None = None
+    ) -> List[Episode]:
         """Return ``n`` i.i.d. episodes for the requested split."""
 
         if n <= 0:
             raise ValueError("n must be positive")
-        return [self.sample_episode(split=split) for _ in range(n)]
+        return [self.sample_episode(split=split, env_id=env_id) for _ in range(n)]
 
     # The helper lives on the base class so subclasses can share the cloning
     # logic and avoid exposing mutable references to cached arrays.

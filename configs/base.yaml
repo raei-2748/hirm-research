@@ -4,13 +4,13 @@ logging:
   output_dir: outputs
 seed: 7
 env:
-  config_path: configs/envs/synthetic_heston.yaml
+  config_path: configs/envs/synthetic_volatility.yaml
 model:
-  config_path: configs/models/linear_stub.yaml
+  config_path: configs/models/mlp_small.yaml
 objective:
-  config_path: configs/objectives/cvar_stub.yaml
+  config_path: configs/objectives/erm.yaml
 training:
-  episodes: 1
-  steps_per_episode: 16
-evaluation:
-  episodes: 1
+  episodes_per_env: 2
+  num_steps: 3
+  lr: 0.001
+  eval_episodes_per_env: 1
