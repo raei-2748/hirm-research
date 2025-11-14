@@ -1,0 +1,16 @@
+experiment:
+  name: base
+logging:
+  output_dir: outputs
+seed: 7
+env:
+  config_path: configs/envs/synthetic_heston.yaml
+model:
+  config_path: configs/models/linear_stub.yaml
+objective:
+  config_path: configs/objectives/cvar_stub.yaml
+training:
+  episodes: 1
+  steps_per_episode: 16
+evaluation:
+  episodes: 1
