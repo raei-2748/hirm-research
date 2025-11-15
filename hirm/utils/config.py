@@ -1,8 +1,58 @@
-"""Configuration loading utilities for HIRM Phase 1."""
+"""Configuration loading utilities for the Phase 1 foundation."""
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, Iterable, List, Tuple
+
+
+class ConfigNode(dict):
+    """A dict wrapper that exposes dot-notation access."""
+
+    def __getattr__(self, key: str) -> Any:
+        try:
+            value = self[key]
+        except KeyError as exc:  # pragma: no cover - defensive branch
+            raise AttributeError(key) from exc
+        return _wrap_value(value)
+
+    def __setattr__(self, key: str, value: Any) -> None:
+        if key.startswith("_"):
+            return super().__setattr__(key, value)
+        self[key] = value
+
+    def __getitem__(self, key: str) -> Any:  # type: ignore[override]
+        value = super().__getitem__(key)
+        return _wrap_value(value)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return _unwrap_value(self)
+
+
+def _wrap_value(value: Any) -> Any:
+    if isinstance(value, dict) and not isinstance(value, ConfigNode):
+        return ConfigNode(value)
+    if isinstance(value, list):
+        return [
+            _wrap_value(item) if isinstance(item, (dict, list)) else item
+            for item in value
+        ]
+    return value
+
+
+def _unwrap_value(value: Any) -> Any:
+    if isinstance(value, ConfigNode):
+        return {k: _unwrap_value(v) for k, v in value.items()}
+    if isinstance(value, dict):
+        return {k: _unwrap_value(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_unwrap_value(v) for v in value]
+    return value
+
+
+def to_plain_dict(config: Any) -> Any:
+    """Convert a possibly wrapped config into built-in containers."""
+
+    return _unwrap_value(config)
 
 
 def _parse_scalar(value: str) -> Any:
@@ -33,7 +83,17 @@ def _parse_list(lines: List[str], start: int, indent: int) -> Tuple[List[Any], i
         value = stripped[2:].strip()
         idx += 1
         if value:
-            items.append(_parse_scalar(value))
+            if ":" in value:
+                key, remainder = value.split(":", 1)
+                key = key.strip()
+                remainder = remainder.strip()
+                if remainder:
+                    items.append({key: _parse_scalar(remainder)})
+                else:
+                    nested, idx = _parse_block(lines, idx, indent + 2)
+                    items.append({key: nested})
+            else:
+                items.append(_parse_scalar(value))
         else:
             nested, idx = _parse_block(lines, idx, indent + 2)
             items.append(nested)
@@ -121,7 +181,63 @@ def _resolve_subconfig(config: Dict[str, Any], key: str) -> Dict[str, Any]:
     return config
 
 
-def load_config(path: str | Path) -> Dict[str, Any]:
+def _candidate_paths(repo_root: Path, entry: str) -> Iterable[Path]:
+    relative = Path(entry)
+    if not relative.suffix:
+        relative = relative.with_suffix(".yaml")
+    yield repo_root / relative
+    yield repo_root / "configs" / relative
+
+
+def _candidate_group_paths(repo_root: Path, group: str, name: str) -> Iterable[Path]:
+    clean_name = name if Path(name).suffix else f"{name}.yaml"
+    group_dir = Path(group)
+    plural_dir = Path(f"{group}s")
+    for candidate in (
+        repo_root / "configs" / group_dir / clean_name,
+        repo_root / "configs" / plural_dir / clean_name,
+        repo_root / "configs" / group_dir / name,
+        repo_root / "configs" / plural_dir / name,
+        repo_root / name,
+    ):
+        yield candidate
+
+
+def _load_defaults(repo_root: Path, defaults: Iterable[Any]) -> Dict[str, Any]:
+    merged: Dict[str, Any] = {}
+    for entry in defaults:
+        block: Dict[str, Any]
+        if isinstance(entry, str):
+            if entry in {"_self_", "..."}:
+                continue
+            block = _load_default_block(repo_root, entry)
+        elif isinstance(entry, dict) and len(entry) == 1:
+            (group, name), = entry.items()
+            if isinstance(name, str):
+                block = _load_group_block(repo_root, group, name)
+            else:
+                raise TypeError("Default entries must map to string values")
+        else:
+            raise TypeError("Defaults must be strings or single-entry dicts")
+        merged = _merge_dicts(merged, block)
+    return merged
+
+
+def _load_default_block(repo_root: Path, entry: str) -> Dict[str, Any]:
+    for candidate in _candidate_paths(repo_root, entry):
+        if candidate.exists():
+            return _read_yaml(candidate)
+    raise FileNotFoundError(f"Unable to resolve default entry '{entry}'")
+
+
+def _load_group_block(repo_root: Path, group: str, name: str) -> Dict[str, Any]:
+    for candidate in _candidate_group_paths(repo_root, group, name):
+        if candidate.exists():
+            return {group: _read_yaml(candidate)}
+    raise FileNotFoundError(f"Unable to resolve default '{group}: {name}'")
+
+
+def load_config(path: str | Path) -> ConfigNode:
     """Load the final experiment configuration.
 
     Parameters
@@ -141,14 +257,17 @@ def load_config(path: str | Path) -> Dict[str, Any]:
 
     base_config = _read_yaml(base_path)
     experiment_config = _read_yaml(experiment_path)
-    merged = _merge_dicts(base_config, experiment_config)
+    defaults = experiment_config.pop("defaults", [])
+
+    merged = _merge_dicts(base_config, _load_defaults(repo_root, defaults))
+    merged = _merge_dicts(merged, experiment_config)
 
     for section in ("env", "model", "objective"):
         merged = _resolve_subconfig(merged, section)
 
     merged.setdefault("experiment", {})
     merged["experiment"].setdefault("name", experiment_path.stem)
-    return merged
+    return ConfigNode(merged)
 
 
-__all__ = ["load_config"]
+__all__ = ["ConfigNode", "load_config", "to_plain_dict"]
