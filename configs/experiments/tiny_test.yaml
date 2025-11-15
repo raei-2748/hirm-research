@@ -1,11 +1,10 @@
+defaults:
+  - env: synthetic_volatility
+  - model: mlp_small
+  - objective: hirm
+  - _self_
 experiment:
   name: tiny_test
-env:
-  config_path: configs/envs/synthetic_volatility.yaml
-model:
-  config_path: configs/models/mlp_small.yaml
-objective:
-  config_path: configs/objectives/hirm.yaml
 training:
   episodes_per_env: 2
   num_steps: 2
