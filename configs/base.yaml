@@ -3,12 +3,6 @@ experiment:
 logging:
   output_dir: outputs
 seed: 7
-env:
-  config_path: configs/envs/synthetic_volatility.yaml
-model:
-  config_path: configs/models/mlp_small.yaml
-objective:
-  config_path: configs/objectives/erm.yaml
 training:
   episodes_per_env: 2
   num_steps: 3
