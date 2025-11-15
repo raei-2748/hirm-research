@@ -9,7 +9,13 @@ from hirm.utils.serialization import load_checkpoint, save_checkpoint
 
 
 class Episode:
-    """Serialization-friendly container for a single episode."""
+    """Serialization-friendly container for a single episode.
+
+    The container enforces ``len(prices) == len(returns) + 1``. Metadata arrays
+    must all have ``len(prices)`` elements and align with the **price index**
+    (not the return index). Consequently ``returns[t]`` represents the return
+    that takes ``prices[t]`` to ``prices[t + 1]``.
+    """
 
     def __init__(
         self,

@@ -1,4 +1,6 @@
 """Merton jump-diffusion environment (simplified)."""
+# Provides a jump-diffusion stress-testing alternative aligned with the HIRM
+# paper's synthetic regime descriptions.
 from __future__ import annotations
 
 from typing import Any, Dict
@@ -47,12 +49,17 @@ class MertonJumpEnv(Env):
         self._t = 0
         self._returns = []
         obs = {"price": self._price, "t": self._t}
-        info = {"t": self._t, "price": self._price, "realized_vol_20": np.nan, "regime": -1}
+        info = {
+            "t": self._t,
+            "price": self._price,
+            "realized_vol_20": 0.0,
+            "regime": -1,
+        }
         return {"obs": obs, "info": info}
 
     def _realized_vol(self) -> float:
         if not self._returns:
-            return float("nan")
+            return 0.0
         arr = np.array(self._returns[-20:], dtype=float)
         return np.sqrt(252.0) * float(np.std(arr, ddof=0))
 

@@ -1,4 +1,6 @@
 """Regime helpers."""
+# Volatility thresholds mirror the HIRM paper's 20-day realized volatility bands
+# for mapping continuous volatility into discrete stress regimes.
 from __future__ import annotations
 
 from typing import Dict
