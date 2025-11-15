@@ -1,4 +1,6 @@
 """Heston stochastic volatility environment."""
+# Implements the synthetic stochastic-volatility process described in the HIRM
+# paper, enabling deterministic experiments with controllable risk regimes.
 from __future__ import annotations
 
 from typing import Any, Dict
@@ -59,15 +61,15 @@ class HestonEnv(Env):
         info = {
             "t": self._t,
             "price": self._price,
-            "inst_var": self._var,
-            "realized_vol_20": np.nan,
+            "instantaneous_var": self._var,
+            "realized_vol_20": 0.0,
             "regime": -1,
         }
         return {"obs": obs, "info": info}
 
     def _compute_realized_vol(self) -> float:
         if not self._returns:
-            return float("nan")
+            return 0.0
         window = self._returns[-20:]
         arr = np.array(window, dtype=float)
         vol = np.sqrt(252.0) * float(np.std(arr, ddof=0))
@@ -104,7 +106,7 @@ class HestonEnv(Env):
         info = {
             "t": self._t,
             "price": self._price,
-            "inst_var": self._var,
+            "instantaneous_var": self._var,
             "realized_vol_20": vol,
             "regime": regime,
             "return_type": "log",

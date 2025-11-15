@@ -7,6 +7,7 @@ import random as _py_random
 from typing import Iterable, List, Sequence
 
 nan = float("nan")
+bool_ = bool
 
 
 class ndarray:
@@ -136,6 +137,14 @@ def isfinite(value) -> bool:
         return False
 
 
+def isscalar(value) -> bool:
+    if isinstance(value, ndarray):
+        return False
+    if isinstance(value, (list, tuple, dict, set)):
+        return False
+    return True
+
+
 def linspace(start: float, stop: float, num: int) -> ndarray:
     if num <= 1:
         return ndarray([start])
@@ -207,6 +216,20 @@ class _RandomModule:
     def seed(self, seed: int) -> None:  # pragma: no cover
         _py_random.seed(seed)
 
+    def rand(self, *size: int):
+        """Return samples from U[0, 1) similar to ``numpy.random.rand``."""
+
+        if not size:
+            return _py_random.random()
+        count = 1
+        for dim in size:
+            count *= int(dim)
+        values = [_py_random.random() for _ in range(max(count, 0))]
+        if len(size) == 1:
+            return values
+        # Multi-dimensional support is approximated by returning a flat list.
+        return values
+
 
 random = _RandomModule()
 
@@ -223,7 +246,9 @@ __all__ = [
     "sqrt",
     "std",
     "isfinite",
+    "isscalar",
     "nan",
+    "bool_",
     "ndarray",
     "testing",
     "linspace",

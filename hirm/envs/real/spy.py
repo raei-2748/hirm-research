@@ -18,7 +18,11 @@ class _EpisodeWindow:
 
 
 class SPYEnv(Env):
-    """Environment that replays historical SPY data."""
+    """SPYEnv produces episodes by sampling random contiguous windows of length `horizon`.
+
+    Windows may overlap. This behavior is intentional and consistent with
+    Phase 2 design. Determinism is controlled entirely by the seed.
+    """
 
     def __init__(
         self,
@@ -84,6 +88,7 @@ class SPYEnv(Env):
             "realized_vol_20": float(self._episode_vol[0]),
             "regime": int(self._episode_regimes[0]),
             "date": self._episode_dates[0],
+            "return_type": "log",
         }
         return {"obs": obs, "info": info}
 
@@ -104,6 +109,7 @@ class SPYEnv(Env):
             "realized_vol_20": float(self._episode_vol[self._t]),
             "regime": int(self._episode_regimes[self._t]),
             "date": self._episode_dates[self._t],
+            "return_type": "log",
         }
         return {
             "obs": obs,
