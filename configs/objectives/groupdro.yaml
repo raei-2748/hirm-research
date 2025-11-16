@@ -1,4 +1,4 @@
-name: groupdro
+name: group_dro
 alpha: 0.95
-step_size: 0.1
-min_weight: 0.001
+group_dro_smooth: false
+group_dro_temperature: 1.0

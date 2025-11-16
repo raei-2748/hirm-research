@@ -1,94 +1,86 @@
-"""Head-invariant risk minimization objective."""
+"""Head Invariant Risk Minimization objective."""
 from __future__ import annotations
 
-from typing import Any, Dict, Tuple
+import itertools
+from typing import Any, Dict
 
 import torch
-from torch import Tensor
-from torch.nn import functional as F
 
-from hirm.objectives.common import compute_env_risks, flatten_head_gradients
+from hirm.objectives.base import BaseObjective, register_objective
+from hirm.objectives.common import flatten_head_gradients
 
 
-class HIRMObjective:
-    """Head-Invariant Risk Minimization objective operating on head gradients."""
+def _get_head_parameters(model):
+    if hasattr(model, "head_parameters"):
+        return list(model.head_parameters())
+    if hasattr(model, "head"):
+        return list(model.head.parameters())
+    raise ValueError("Model must expose head parameters for HIRM")
 
-    def __init__(self, cfg: Any) -> None:
-        self.lambda_invariance = float(getattr(cfg, "lambda_invariance", 1.0))
-        self.grad_normalization = getattr(cfg, "grad_normalization", "l2").lower()
 
-    def __call__(
+@register_objective("hirm")
+class HIRMObjective(BaseObjective):
+    """Head gradient invariance objective described in the paper."""
+
+    def __init__(self, cfg: Any, device: torch.device) -> None:
+        super().__init__(cfg, device)
+        self.lambda_hirm = float(getattr(self.obj_cfg, "lambda_hirm", getattr(self.obj_cfg, "lambda_invariance", 1.0)))
+        self.eps = float(getattr(self.obj_cfg, "eps", 1e-8))
+
+    def compute_loss(
         self,
-        policy,
-        batch: Dict[str, Tensor],
-        env_ids: Tensor,
-        risk_fn,
-    ) -> Tuple[Tensor, Dict[str, Tensor]]:
-        env_risks, pnl, _, _ = compute_env_risks(policy, batch, env_ids, risk_fn)
+        env_risks: Dict[str, torch.Tensor],
+        model,
+        batch: Dict[str, Any],
+        extra_state: Dict[str, Any] | None = None,
+    ) -> torch.Tensor:
+        del batch
         risks = torch.stack(list(env_risks.values()))
         mean_risk = risks.mean()
-        penalty, grad_cos = self._head_gradient_penalty(policy, env_risks)
-        loss = mean_risk + self.lambda_invariance * penalty
-        logs: Dict[str, Tensor] = {
-            "loss": loss.detach(),
-            "risk/mean": mean_risk.detach(),
-            "hirm/penalty": penalty.detach(),
-            "hirm/lambda": torch.tensor(self.lambda_invariance),
-            "pnl/mean": pnl.mean().detach(),
-        }
-        if grad_cos is not None:
-            logs["hirm/grad_cosine"] = grad_cos.detach()
-        for env, risk in env_risks.items():
-            logs[f"risk/env_{env}"] = risk.detach()
-        return loss, logs
-
-    def _head_gradient_penalty(
-        self,
-        policy,
-        env_risks: Dict[int, Tensor],
-    ) -> Tuple[Tensor, Tensor | None]:
-        head_params = list(policy.head_parameters())
+        head_params = _get_head_parameters(model)
         if not head_params:
-            raise ValueError("Policy must expose head parameters for HIRM")
-        grad_vectors: list[Tensor] = []
-        for risk in env_risks.values():
-            grads = torch.autograd.grad(
-                risk,
+            raise ValueError("HIRM requires a non-empty head module")
+        env_names = list(env_risks.keys())
+        gradients: Dict[str, torch.Tensor] = {}
+        for env_name in env_names:
+            grad = torch.autograd.grad(
+                env_risks[env_name],
                 head_params,
                 create_graph=True,
                 retain_graph=True,
                 allow_unused=True,
             )
-            grad_vec = flatten_head_gradients(grads)
-            grad_vec = self._normalize_grad(grad_vec)
-            grad_vectors.append(grad_vec)
-        if len(grad_vectors) < 2:
-            penalty = torch.zeros(1, device=grad_vectors[0].device)
-            return penalty, None
-        stacked = torch.stack(grad_vectors)
-        mean = stacked.mean(dim=0, keepdim=True)
-        penalty = ((stacked - mean) ** 2).mean()
-        cosine = self._pairwise_cosine(grad_vectors)
-        return penalty, cosine
+            flat = flatten_head_gradients(grad)
+            norm = flat.norm() + self.eps
+            gradients[env_name] = flat / norm
+        dispersion = self._gradient_dispersion(gradients)
+        alignment = 1.0 - dispersion
+        total = mean_risk + self.lambda_hirm * dispersion
+        alignment_detached = alignment.detach()
+        self._log(
+            extra_state,
+            {
+                "train/risk/mean": mean_risk.detach(),
+                "train/objective/hirm_penalty": dispersion.detach(),
+                "train/objective/hirm_lambda": torch.tensor(self.lambda_hirm),
+                "train/hirm/alignment": alignment_detached,
+            },
+        )
+        if extra_state is not None:
+            extra_state["hirm_alignment"] = alignment_detached
+        return total
 
-    def _normalize_grad(self, grad_vec: Tensor) -> Tensor:
-        if self.grad_normalization in {"l2", "unit"}:
-            norm = grad_vec.norm(p=2) + 1e-12
-            return grad_vec / norm
-        return grad_vec
-
-    @staticmethod
-    def _pairwise_cosine(grad_vectors: list[Tensor]) -> Tensor:
-        device = grad_vectors[0].device
-        total = torch.zeros(1, device=device)
-        count = 0
-        for idx in range(len(grad_vectors)):
-            for jdx in range(idx + 1, len(grad_vectors)):
-                total += F.cosine_similarity(grad_vectors[idx], grad_vectors[jdx], dim=0)
-                count += 1
-        if count == 0:
-            return torch.ones(1, device=device)
-        return total / count
+    def _gradient_dispersion(self, gradients: Dict[str, torch.Tensor]) -> torch.Tensor:
+        env_names = list(gradients.keys())
+        if len(env_names) <= 1:
+            return torch.zeros(1, device=self.device)
+        cos_values = []
+        for env_a, env_b in itertools.combinations(env_names, 2):
+            cos = torch.sum(gradients[env_a] * gradients[env_b])
+            cos_values.append(cos)
+        cos_tensor = torch.stack(cos_values)
+        mean_cos = cos_tensor.mean()
+        return 1.0 - mean_cos
 
 
 __all__ = ["HIRMObjective"]

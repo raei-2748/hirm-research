@@ -1,42 +1,42 @@
 """Variance Risk Extrapolation objective."""
 from __future__ import annotations
 
-from typing import Any, Dict, Tuple
+from typing import Any, Dict
 
 import torch
-from torch import Tensor
 
-from hirm.objectives.common import compute_env_risks
+from hirm.objectives.base import BaseObjective, register_objective
 
 
-class VRExObjective:
+@register_objective("vrex")
+class VREXObjective(BaseObjective):
     """V-REx objective penalizing variance of environment risks."""
 
-    def __init__(self, cfg: Any) -> None:
-        self.penalty_weight = float(getattr(cfg, "penalty_weight", getattr(cfg, "beta", 10.0)))
+    def __init__(self, cfg: Any, device: torch.device) -> None:
+        super().__init__(cfg, device)
+        self.beta = float(getattr(self.obj_cfg, "beta", getattr(self.obj_cfg, "penalty_weight", 1.0)))
 
-    def __call__(
+    def compute_loss(
         self,
-        policy,
-        batch: Dict[str, Tensor],
-        env_ids: Tensor,
-        risk_fn,
-    ) -> Tuple[Tensor, Dict[str, Tensor]]:
-        env_risks, pnl, _, _ = compute_env_risks(policy, batch, env_ids, risk_fn)
+        env_risks: Dict[str, torch.Tensor],
+        model,
+        batch: Dict[str, Any],
+        extra_state: Dict[str, Any] | None = None,
+    ) -> torch.Tensor:
+        del model, batch
         risks = torch.stack(list(env_risks.values()))
         mean_risk = risks.mean()
-        var_risk = risks.var(unbiased=False)
-        loss = mean_risk + self.penalty_weight * var_risk
-        logs: Dict[str, Tensor] = {
-            "loss": loss.detach(),
-            "risk/mean": mean_risk.detach(),
-            "risk/var": var_risk.detach(),
-            "vrex/beta": torch.tensor(self.penalty_weight),
-            "pnl/mean": pnl.mean().detach(),
-        }
-        for env, risk in env_risks.items():
-            logs[f"risk/env_{env}"] = risk.detach()
-        return loss, logs
+        variance = ((risks - mean_risk) ** 2).mean()
+        loss = mean_risk + self.beta * variance
+        self._log(
+            extra_state,
+            {
+                "train/risk/mean": mean_risk.detach(),
+                "train/objective/variance_penalty": variance.detach(),
+                "train/objective/vrex_beta": torch.tensor(self.beta),
+            },
+        )
+        return loss
 
 
-__all__ = ["VRExObjective"]
+__all__ = ["VREXObjective"]

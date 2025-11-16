@@ -2,16 +2,14 @@
 from __future__ import annotations
 
 import argparse
-from typing import Dict
-
 import torch
 
+from hirm.data.synthetic import build_synthetic_dataset, sample_batch
 from hirm.models import build_model
 from hirm.objectives import build_objective
 from hirm.objectives.risk import build_risk_function
+from hirm.training import train_step
 from hirm.utils.config import load_config
-
-Batch = Dict[str, torch.Tensor]
 
 
 def parse_args() -> argparse.Namespace:
@@ -36,36 +34,6 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--device", type=str, default="cpu", help="Torch device")
     return parser.parse_args()
-
-
-def build_synthetic_dataset(
-    num_samples: int,
-    feature_dim: int,
-    action_dim: int,
-    num_envs: int,
-    generator: torch.Generator,
-) -> Batch:
-    env_ids = torch.arange(num_samples) % max(2, num_envs)
-    perm = torch.randperm(num_samples, generator=generator)
-    env_ids = env_ids[perm]
-    features = torch.randn(num_samples, feature_dim, generator=generator)
-    hedge_returns = 0.05 * torch.randn(num_samples, action_dim, generator=generator)
-    env_effect = torch.linspace(-0.2, 0.2, steps=max(2, num_envs))
-    base_signal = env_effect[env_ids]
-    base_noise = 0.01 * torch.randn(num_samples, generator=generator)
-    base_pnl = base_signal + base_noise
-    return {
-        "features": features,
-        "hedge_returns": hedge_returns,
-        "base_pnl": base_pnl,
-        "env_ids": env_ids.long(),
-    }
-
-
-def sample_batch(dataset: Batch, indices: torch.Tensor) -> Batch:
-    return {key: value[indices] for key, value in dataset.items()}
-
-
 def _get_attr(node, key: str, default):  # type: ignore[no-untyped-def]
     if node is None:
         return default
@@ -104,7 +72,7 @@ def main() -> None:
     dataset = {key: value.to(device) for key, value in dataset.items()}
 
     model = build_model(cfg.model, input_dim=feature_dim, action_dim=action_dim).to(device)
-    objective = build_objective(cfg.objective)
+    objective = build_objective(cfg, device=device)
     risk_fn = build_risk_function(cfg.objective)
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
 
@@ -112,19 +80,14 @@ def main() -> None:
         f"Starting tiny experiment with {num_steps} steps, batch_size={batch_size}, lr={lr}"
     )
     for step in range(num_steps):
-        indices = torch.randint(dataset_size, (batch_size,), generator=generator)
+        indices = torch.randint(dataset_size, (batch_size,), generator=generator).to(device)
         batch = sample_batch(dataset, indices)
         env_ids = batch["env_ids"]
-        optimizer.zero_grad(set_to_none=True)
         model.train()
-        loss, logs = objective(model, batch, env_ids, risk_fn)
-        loss.backward()
-        optimizer.step()
+        loss, logs = train_step(model, objective, optimizer, batch, env_ids, risk_fn)
         if step % 10 == 0 or step == num_steps - 1:
-            risk_mean = logs.get("risk/mean", torch.tensor(float("nan")))
-            print(
-                f"step={step:04d} loss={loss.item():.4f} risk_mean={float(risk_mean):.4f}"
-            )
+            risk_mean = logs.get("train/risk/mean", torch.tensor(float("nan")))
+            print(f"step={step:04d} loss={loss.item():.4f} risk_mean={float(risk_mean):.4f}")
 
     print("Finished tiny experiment.")
 
