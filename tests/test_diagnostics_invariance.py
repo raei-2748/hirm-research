@@ -1,9 +1,6 @@
 from __future__ import annotations
 
 import math
-import random
-
-import math
 
 import pytest
 
@@ -100,6 +97,25 @@ def test_c2_trimming_dampens_outlier(base_inputs) -> None:
     assert metrics["ISI_C2_trimmed"] > metrics["ISI_C2"]
 
 
+def test_c2_trimming_makes_isi_robust(base_inputs) -> None:
+    config = base_inputs.copy()
+    config["env_risks"] = {f"env_{idx}": 0.1 for idx in range(6)}
+    config["layer_activations"] = {
+        "representation": {
+            f"env_{idx}": [[1.0 + 0.01 * t, 2.0 + 0.02 * t] for t in range(6)]
+            for idx in range(6)
+        }
+    }
+    aligned = [1.0, 0.0, 0.0, 0.0]
+    grads = {f"env_{idx}": aligned[:] for idx in range(6)}
+    grads["env_5"] = [-1.0, 0.0, 0.0, 0.0]
+    config["head_gradients"] = grads
+    trimmed = compute_isi(**{**config, "trim_fraction": 0.2})
+    untrimmed = compute_isi(**{**config, "trim_fraction": 0.0})
+    assert trimmed["ISI_C2_trimmed"] > untrimmed["ISI_C2"]
+    assert trimmed["ISI"] > untrimmed["ISI"]
+
+
 def test_c3_trimming_handles_dispersion_outlier(base_inputs) -> None:
     trim_case = base_inputs.copy()
     trim_case["trim_fraction"] = 0.25
@@ -115,16 +131,43 @@ def test_c3_trimming_handles_dispersion_outlier(base_inputs) -> None:
     assert metrics["ISI_C3_trimmed"] > metrics["ISI_C3"]
 
 
+def test_c3_trimming_limits_outlier_impact(base_inputs) -> None:
+    inputs = base_inputs.copy()
+    inputs["env_risks"] = {f"env_{idx}": 0.2 for idx in range(5)}
+    base_layer = [[1.0 + 0.05 * t, 2.0 + 0.03 * t] for t in range(6)]
+    layer = {f"env_{idx}": base_layer[:] for idx in range(5)}
+    layer["env_4"] = [[50.0 * t, -50.0 * t] for t in range(1, 7)]
+    inputs["layer_activations"] = {"representation": layer}
+    trimmed = compute_isi(**{**inputs, "trim_fraction": 0.25})
+    untrimmed = compute_isi(**{**inputs, "trim_fraction": 0.0})
+    assert trimmed["ISI_C3_trimmed"] > untrimmed["ISI_C3"]
+    assert trimmed["ISI"] > untrimmed["ISI"]
+
+
+def test_c3_remains_bounded_with_singular_covariance(base_inputs) -> None:
+    inputs = base_inputs.copy()
+    inputs["layer_activations"] = {
+        "representation": {
+            "env_0": [[1.0, 1.0]] * 5,
+            "env_1": [[1.0, 1.0]] * 5,
+        }
+    }
+    metrics = compute_isi(**inputs)
+    assert 0.0 <= metrics["ISI_C3_trimmed"] <= 1.0
+    assert math.isfinite(metrics["ISI"])
+
+
 def test_isi_uses_trimmed_components(base_inputs) -> None:
     inputs = base_inputs.copy()
     inputs["trim_fraction"] = 0.2
     metrics = compute_isi(**inputs)
     alphas = inputs["alpha_components"]
+    weights = [w / sum(alphas) for w in alphas]
     expected = (
-        alphas[0] * metrics["ISI_C1_trimmed"]
-        + alphas[1] * metrics["ISI_C2_trimmed"]
-        + alphas[2] * metrics["ISI_C3_trimmed"]
-    ) / sum(alphas)
+        weights[0] * metrics["ISI_C1_trimmed"]
+        + weights[1] * metrics["ISI_C2_trimmed"]
+        + weights[2] * metrics["ISI_C3_trimmed"]
+    )
     assert metrics["ISI"] == pytest.approx(expected, rel=1e-6)
 
 

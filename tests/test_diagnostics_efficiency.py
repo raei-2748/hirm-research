@@ -16,17 +16,21 @@ def test_er_rewards_higher_mean_returns() -> None:
     assert low_risk > high_risk
 
 
-def test_er_returns_mode_reflects_sign() -> None:
-    positive = compute_er([0.2, 0.3, 0.25], cvar_alpha=0.8, eps=1e-6, mode="returns")["ER"]
-    negative = compute_er([-0.2, -0.1, -0.3], cvar_alpha=0.8, eps=1e-6, mode="returns")["ER"]
-    assert positive > 0
-    assert negative < positive
+def test_er_returns_mode_penalizes_downside() -> None:
+    balanced = compute_er([0.1, 0.1, 0.1, -0.1], cvar_alpha=0.75, eps=1e-6, mode="returns")["ER"]
+    tail = compute_er([0.1, 0.1, 0.1, -0.6], cvar_alpha=0.75, eps=1e-6, mode="returns")["ER"]
+    assert balanced > tail
 
 
 def test_er_loss_mode_penalizes_tail_losses() -> None:
     stable = compute_er([0.1] * 10, cvar_alpha=0.9, eps=1e-6, mode="loss")["ER"]
     tail = compute_er([0.1] * 9 + [-0.9], cvar_alpha=0.9, eps=1e-6, mode="loss")["ER"]
     assert stable > tail
+
+
+def test_er_mode_validation() -> None:
+    with pytest.raises(ValueError):
+        compute_er([0.1, 0.2], cvar_alpha=0.5, eps=1e-6, mode="unknown")
 
 
 def test_tr_zero_for_constant_actions() -> None:

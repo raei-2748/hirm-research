@@ -123,15 +123,23 @@ def main() -> None:
     )
 
     if args.run_diagnostics:
-        run_diagnostics_from_config(
-            cfg,
-            checkpoint=checkpoint_path,
-            results_dir=str(results_dir / "diagnostics"),
-            device=args.device,
-            model_name=model_name,
-            force=args.force_diagnostics,
-        )
+        diag_cfg = getattr(cfg, "diagnostics", {})
+        enabled = bool(getattr(diag_cfg, "enabled", True))
+        if enabled or args.force_diagnostics:
+            run_diagnostics_from_config(
+                cfg,
+                checkpoint=checkpoint_path,
+                results_dir=str(results_dir / "diagnostics"),
+                device=args.device,
+                model_name=model_name,
+                force=args.force_diagnostics,
+            )
+        else:
+            print(
+                "Diagnostics disabled via config; skipping. "
+                "Use --force-diagnostics to override."
+            )
 
 
-+if __name__ == "__main__":
-+    main()
+if __name__ == "__main__":
+    main()
