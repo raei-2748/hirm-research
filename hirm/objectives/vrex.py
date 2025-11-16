@@ -1,0 +1,42 @@
+"""Variance Risk Extrapolation objective."""
+from __future__ import annotations
+
+from typing import Any, Dict, Tuple
+
+import torch
+from torch import Tensor
+
+from hirm.objectives.common import compute_env_risks
+
+
+class VRExObjective:
+    """V-REx objective penalizing variance of environment risks."""
+
+    def __init__(self, cfg: Any) -> None:
+        self.penalty_weight = float(getattr(cfg, "penalty_weight", getattr(cfg, "beta", 10.0)))
+
+    def __call__(
+        self,
+        policy,
+        batch: Dict[str, Tensor],
+        env_ids: Tensor,
+        risk_fn,
+    ) -> Tuple[Tensor, Dict[str, Tensor]]:
+        env_risks, pnl, _, _ = compute_env_risks(policy, batch, env_ids, risk_fn)
+        risks = torch.stack(list(env_risks.values()))
+        mean_risk = risks.mean()
+        var_risk = risks.var(unbiased=False)
+        loss = mean_risk + self.penalty_weight * var_risk
+        logs: Dict[str, Tensor] = {
+            "loss": loss.detach(),
+            "risk/mean": mean_risk.detach(),
+            "risk/var": var_risk.detach(),
+            "vrex/beta": torch.tensor(self.penalty_weight),
+            "pnl/mean": pnl.mean().detach(),
+        }
+        for env, risk in env_risks.items():
+            logs[f"risk/env_{env}"] = risk.detach()
+        return loss, logs
+
+
+__all__ = ["VRExObjective"]
