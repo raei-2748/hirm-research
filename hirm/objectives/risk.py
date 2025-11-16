@@ -33,21 +33,24 @@ def build_risk_function(cfg_objective) -> RiskFn:  # type: ignore[no-untyped-def
 def make_cvar(alpha: float = 0.95) -> RiskFn:
     """Return a differentiable Conditional Value-at-Risk closure.
 
-    CVaR operates on a vector of PnL outcomes.  We convert PnL into losses
-    via ``-pnl`` so that the expected loss in the worst ``(1 - alpha)`` tail
-    matches the paper's sign convention.
+    We follow the standard PnL convention where positive values are good and
+    negative values are bad.  Risk is therefore the *expected loss* in the
+    worst ``(1 - alpha)`` fraction of outcomes, so larger values correspond to
+    worse risk.
     """
 
-    if not 0.0 < alpha <= 1.0:
-        raise ValueError("alpha must be in (0, 1]")
+    if not 0.0 < alpha < 1.0:
+        raise ValueError("alpha must be in (0, 1)")
 
     def _cvar(pnl: Tensor) -> Tensor:
         if pnl.numel() == 0:
             raise ValueError("pnl tensor must be non-empty")
+
         losses = -pnl.reshape(-1)
         sorted_losses, _ = torch.sort(losses)
-        tail_fraction = max(1, int(math.ceil(sorted_losses.numel() * (1 - alpha))))
-        tail = sorted_losses[:tail_fraction]
+        n = sorted_losses.numel()
+        tail_fraction = max(1, int(math.ceil(n * (1.0 - alpha))))
+        tail = sorted_losses[-tail_fraction:]
         return tail.mean()
 
     return _cvar
