@@ -9,11 +9,10 @@ from typing import Any, Dict, Iterable, Mapping, Tuple
 import torch
 
 from hirm.data.synthetic import build_synthetic_dataset
-from hirm.diagnostics import compute_all_diagnostics
+from hirm.diagnostics import compute_all_diagnostics, compute_crisis_cvar
 from hirm.objectives.common import concat_state, compute_env_risks
 from hirm.objectives.risk import build_risk_function
 from hirm.utils.config import load_config
-from hirm.utils.math import cvar
 from hirm.models import build_model
 
 
@@ -285,10 +284,12 @@ def run_diagnostics_from_config(
         _, crisis_pnl, _, _ = compute_env_risks(
             model, crisis_batch, crisis_batch["env_ids"], risk_fn
         )
-        crisis_losses = (-crisis_pnl.detach().cpu()).tolist()
-        crisis_alpha = float(crisis_cfg.get("cvar_alpha", 0.95))
-        crisis_metric_name = f"crisis_cvar{int(round(crisis_alpha * 100))}"
-        metrics[crisis_metric_name] = float(cvar(crisis_losses, alpha=crisis_alpha))
+        crisis_alpha = float(crisis_cfg.get("cvar_alpha", 0.05))
+        crisis_metrics = compute_crisis_cvar(
+            pnl_time_series=crisis_pnl.detach().cpu().tolist(),
+            alpha=crisis_alpha,
+        )
+        metrics.update(crisis_metrics)
 
     results_dir_path = Path(results_dir)
     results_dir_path.mkdir(parents=True, exist_ok=True)
@@ -312,7 +313,7 @@ def run_diagnostics_from_config(
         "checkpoint": checkpoint,
         "env_config": env_config,
         "dataset_name": dataset_name,
-        "split_info": split_info,
+        "splits": split_info,
         "metrics": metrics,
     }
     out_path = results_dir_path / "diagnostics.jsonl"

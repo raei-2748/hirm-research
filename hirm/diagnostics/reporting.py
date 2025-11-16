@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional
+from typing import Any, Dict, Iterable, List, Optional, Sequence
 
 try:  # pragma: no cover - optional dependency
     import matplotlib.pyplot as plt
@@ -53,13 +53,19 @@ def load_diagnostics_results(paths: List[str]) -> "pd.DataFrame":  # type: ignor
 
 
 def _resolve_crisis_column(df) -> Optional[str]:  # type: ignore[no-untyped-def]
-    for column in ("metrics.crisis_cvar95", "metrics.crisis_cvar"):
+    for column in ("metrics.crisis_cvar", "metrics.crisis_cvar95"):
         if column in df.columns:
             return column
     for column in df.columns:
         if column.startswith("metrics.crisis_cvar"):
             return column
     return None
+
+
+def has_crisis_cvar(df) -> bool:  # type: ignore[no-untyped-def]
+    """Return True if a crisis CVaR metric is present."""
+
+    return _resolve_crisis_column(df) is not None
 
 
 def compute_diagnostics_correlations(df) -> Dict[str, float]:  # type: ignore[no-untyped-def]
@@ -82,23 +88,29 @@ def compute_diagnostics_correlations(df) -> Dict[str, float]:  # type: ignore[no
 
 
 def summarize_diagnostics_by_method(
-    df, group_by: Optional[str] = None
+    df, group_by: Optional[Sequence[str] | str] = None
 ) -> "pd.DataFrame":  # type: ignore[name-defined, no-untyped-def]
     """Group diagnostics by method/model and report mean/std."""
 
     pandas = _require_pandas()
     if df.empty:
         return pandas.DataFrame()
-    if group_by is not None:
-        if group_by not in df.columns:
-            raise KeyError(f"Group-by column '{group_by}' not present in diagnostics")
-        group_key = group_by
+    if group_by is None:
+        group_keys = ["method"] if "method" in df.columns else ["model_name"]
     else:
-        group_key = "method" if "method" in df.columns else "model_name"
-    if group_key not in df.columns:
-        raise KeyError("Diagnostics results must contain 'method' or 'model_name'")
+        if isinstance(group_by, str):
+            group_keys = [group_by]
+        else:
+            group_keys = list(group_by)
+        if not group_keys:
+            group_keys = ["method"] if "method" in df.columns else ["model_name"]
+    missing = [key for key in group_keys if key not in df.columns]
+    if missing:
+        raise KeyError(
+            f"Group-by columns missing in diagnostics dataframe: {', '.join(missing)}"
+        )
     metric_cols = [col for col in df.columns if col.startswith("metrics.")]
-    grouped = df.groupby(group_key)[metric_cols]
+    grouped = df.groupby(group_keys)[metric_cols]
     summary = grouped.agg(["mean", "std"])
     summary.columns = ["{}__{}".format(metric, agg) for metric, agg in summary.columns]
     return summary.reset_index()
@@ -145,4 +157,5 @@ __all__ = [
     "summarize_diagnostics_by_method",
     "plot_isi_vs_ig",
     "plot_isi_vs_crisis_cvar",
+    "has_crisis_cvar",
 ]

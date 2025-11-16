@@ -22,12 +22,11 @@ def compute_er(
     if not values:
         raise ValueError("returns_time_series cannot be empty")
     mean_return = sum(values) / len(values)
-    tail_risk_returns = float(cvar(values, alpha=cvar_alpha))
     if mode == "returns":
-        tail_risk = tail_risk_returns
+        tail_risk = abs(float(cvar(values, alpha=cvar_alpha)))
     else:
-        # Interpret losses as ``-returns`` and capture the upper tail via sign flip.
-        tail_risk = max(0.0, -tail_risk_returns)
+        losses = [-v for v in values]
+        tail_risk = max(0.0, float(cvar(losses, alpha=cvar_alpha)))
     er = mean_return / (tail_risk + eps)
     return {"ER": er}
 

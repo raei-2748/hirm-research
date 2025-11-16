@@ -9,13 +9,13 @@ and notebooks can import the metrics directly.
 
 | Axis | Metric | Definition |
 | ---- | ------ | ---------- |
-| Invariance | ISI | Internal Stability Index composed of C1 (risk variance), C2 (head gradient alignment) and C3 (structural dispersion). See `hirm/diagnostics/invariance.py`.
-| Invariance | IG | Outcome-level invariance gap computed over held-out env risks.
-| Robustness | WG | Worst-case generalization computed via a CVaR-style surrogate.
-| Robustness | VR | Volatility ratio of rolling risk statistics.
-| Efficiency | ER | Expected return divided by CVaR tail risk. Supports `mode="returns"` and `mode="loss"`.
-| Efficiency | TR | Turnover ratio measuring action smoothness.
-
+| Invariance | ISI | Internal Stability Index composed of C1 (risk variance), C2 (head gradient alignment) and C3 (structural dispersion). See `hirm/diagnostics/invariance.py`.|
+| Invariance | IG | Outcome-level invariance gap computed over held-out env risks.|
+| Robustness | WG | Worst-case generalization computed via a CVaR-style surrogate.|
+| Robustness | VR | Volatility ratio of rolling risk statistics.|
+| Crisis | crisis_cvar | CVaR of losses evaluated on a dedicated crisis or stress split.|
+| Efficiency | ER | Expected return divided by CVaR tail risk. Supports `mode="returns"` and `mode="loss"`.|
+| Efficiency | TR | Turnover ratio measuring action smoothness.|
 Each metric is implemented as a pure function documented with references to the
 corresponding equation or section in the paper.
 
@@ -38,7 +38,9 @@ which trains a small synthetic model, writes a checkpoint, and immediately runs
 the diagnostics in one pass.
 
 Both entry points replay the saved model on held-out probe batches and write a
-JSONL file with all metrics to the requested directory.
+JSONL file with all metrics to the requested directory. Set
+`diagnostics.enabled=false` in a config to skip these diagnostics during sweeps;
+pass `--force` to the scripts to override the flag when needed.
 
 Each JSONL line now includes richer metadata for downstream analytics:
 
@@ -51,7 +53,7 @@ Each JSONL line now includes richer metadata for downstream analytics:
   "checkpoint": "outputs/synth_hirm/best_model.pt",
   "env_config": "synthetic_volatility_bands",
   "dataset_name": "synthetic_sandbox",
-  "split_info": {
+  "splits": {
     "train": "synthetic_train",
     "test": "synthetic_test",
     "crisis": "synthetic_crisis"
@@ -69,39 +71,42 @@ Each JSONL line now includes richer metadata for downstream analytics:
     "VR": 0.15,
     "ER": 1.12,
     "TR": 0.42,
-    "crisis_cvar95": 0.37
+    "crisis_cvar": 0.37
   }
 }
 ```
 
 ### ISI trimming
 
-`compute_isi` retains the full list of pairwise gradient alignments and layer
-dispersion statistics.  The trimming fraction is applied to those lists and the
-trimmed component scores are combined according to the configured alphas.  Both
-raw and trimmed versions are returned for C1--C3 so the effect of trimming is
-fully observable.
+`compute_isi` retains the full list of pairwise gradient alignments (C2) and
+layer dispersion statistics (C3).  The trimming fraction is applied symmetrically
+to those lists before aggregating, and the normalized alpha vector is applied to
+the trimmed component scores when forming the final ISI.  Both raw and trimmed
+versions are returned for C1--C3 so the effect of trimming is fully observable
+even though trimming is a no-op for C1.
 
 ### ER conventions
 
-`compute_er` exposes a `mode` flag.  `mode="loss"` negates returns and treats
-the resulting losses as the risk metric (mirroring the paper), while
-`mode="returns"` matches the original code path.  The configuration flows from
-`diagnostics.er.mode` through `scripts/run_diagnostics.py` and into the metric
+`compute_er` exposes a `mode` flag.  `mode="loss"` negates returns, computes the
+CVaR of the resulting losses, and divides the mean return by the downside risk.
+`mode="returns"` keeps the PnL series in return space while still measuring the
+lower tail via CVaR for continuity with historical runs.  The configuration flows
+from `diagnostics.er.mode` through `scripts/run_diagnostics.py` and into the metric
 computation.
 
 ### Crisis CVaR
 
 `configs/base.yaml` adds a `data.splits.crisis` section and matching diagnostics
 controls.  When enabled, `scripts/run_diagnostics.py` evaluates the policy on
-the crisis split, converts the resulting PnL series into losses, and records a
-metric such as `crisis_cvar95` using the same CVaR utility as the efficiency
-axis.
+the crisis split, converts the resulting PnL series into losses, and records the
+`crisis_cvar` metric using the same CVaR utility as the efficiency axis.  These
+metrics can be correlated with ISI and IG via the reporting helpers.
 
 ## Summaries and reporting
 
 Use the reporting helper to aggregate and visualize diagnostics.  You can pass
-`--group-by` to control aggregation keys and optionally request plots:
+`--group-by` multiple times (or provide several columns) to control aggregation keys
+and optionally request plots:
 
 ```bash
 python scripts/summarize_diagnostics.py \

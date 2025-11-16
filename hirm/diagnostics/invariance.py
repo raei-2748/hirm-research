@@ -5,6 +5,7 @@ import itertools
 import math
 from typing import Any, Dict, Mapping, Sequence
 
+
 try:  # pragma: no cover - optional dependency
     import torch
 except Exception:  # pragma: no cover - optional dependency
@@ -50,10 +51,14 @@ def _to_matrix(value: Any) -> list[list[float]]:
 def _trimmed_mean(values: Sequence[float], proportion_to_cut: float = 0.1) -> float:
     if not values:
         return 0.0
+    proportion = float(max(0.0, min(0.5, proportion_to_cut)))
     sorted_vals = sorted(float(v) for v in values)
     n = len(sorted_vals)
-    trim = int(math.floor(n * proportion_to_cut))
-    sliced = sorted_vals[trim : n - trim] if n - 2 * trim > 0 else sorted_vals
+    trim = int(math.floor(n * proportion))
+    if trim == 0 or 2 * trim >= n:
+        sliced = sorted_vals
+    else:
+        sliced = sorted_vals[trim : n - trim]
     return float(sum(sliced) / len(sliced))
 
 
@@ -146,13 +151,15 @@ def compute_isi(
         normalized_grads.append([v / (norm + grad_norm_eps) for v in vec])
     if normalized_grads:
         cosines = _pairwise_cosine(normalized_grads)
-        alignments = [float((1.0 + c) / 2.0) for c in cosines]
-        c2_raw = float(sum(alignments) / len(alignments))
-        c2_trim = max(0.0, min(1.0, _trimmed_mean(alignments, trim_fraction)))
+        c2_values = [float((1.0 + c) / 2.0) for c in cosines]
+        c2_raw = float(sum(c2_values) / len(c2_values))
+        c2_trim = _trimmed_mean(c2_values, trim_fraction)
     else:
+        c2_values = []
         c2_raw = 0.0
         c2_trim = 0.0
     c2_raw = max(0.0, min(1.0, c2_raw))
+    c2_trim = max(0.0, min(1.0, c2_trim))
 
     dispersion_values: list[float] = []
     use_torch = torch is not None
@@ -179,12 +186,16 @@ def compute_isi(
     # C1 is a single statistic; trimming is a no-op but returned for API symmetry.
     c1_trim = c1_raw
 
-    total_alpha = max(sum(alpha_components), eps)
+    total_alpha = float(sum(alpha_components))
+    if total_alpha <= eps:
+        normalized_alphas = [1.0 / 3.0] * 3
+    else:
+        normalized_alphas = [float(w) / total_alpha for w in alpha_components]
     isi = (
-        alpha_components[0] * c1_trim
-        + alpha_components[1] * c2_trim
-        + alpha_components[2] * c3_trim
-    ) / total_alpha
+        normalized_alphas[0] * c1_trim
+        + normalized_alphas[1] * c2_trim
+        + normalized_alphas[2] * c3_trim
+    )
     isi = max(0.0, min(1.0, isi))
 
     return {
@@ -252,7 +263,8 @@ def _layer_dispersion_python(
         if env_id not in env_map:
             continue
         acts = _to_matrix(env_map[env_id])
-        covariances.append(_covariance_list(acts))
+        cov = _covariance_list(acts)
+        covariances.append(cov)
     if not covariances:
         return []
     dim = len(covariances[0])
@@ -262,11 +274,12 @@ def _layer_dispersion_python(
             for j in range(dim):
                 avg_cov[i][j] += cov[i][j] / len(covariances)
     ref_cov = _add_identity(avg_cov, cov_regularizer)
-    ref_inv = _matrix_inverse(ref_cov)
+    ref_inv = _robust_inverse_list(ref_cov, cov_regularizer)
     values: list[float] = []
     for cov in covariances:
         cov_reg = _add_identity(cov, cov_regularizer)
-        trace_val = _matrix_trace(_matrix_multiply(ref_inv, cov_reg))
+        product = _matrix_multiply(ref_inv, cov_reg)
+        trace_val = _matrix_trace(product)
         values.append(abs(trace_val - dim))
     return values
 
@@ -313,30 +326,6 @@ def _identity(dim: int) -> list[list[float]]:
     return [[1.0 if i == j else 0.0 for j in range(dim)] for i in range(dim)]
 
 
-def _matrix_inverse(matrix: list[list[float]]) -> list[list[float]]:
-    n = len(matrix)
-    aug = [row[:] + ident_row[:] for row, ident_row in zip(matrix, _identity(n))]
-    for col in range(n):
-        pivot = None
-        for row in range(col, n):
-            if abs(aug[row][col]) > 1e-12:
-                pivot = row
-                break
-        if pivot is None:
-            return _identity(n)
-        if pivot != col:
-            aug[col], aug[pivot] = aug[pivot], aug[col]
-        pivot_val = aug[col][col]
-        factor = 1.0 / pivot_val
-        aug[col] = [v * factor for v in aug[col]]
-        for row in range(n):
-            if row == col:
-                continue
-            coeff = aug[row][col]
-            aug[row] = [curr - coeff * base for curr, base in zip(aug[row], aug[col])]
-    return [row[n:] for row in aug]
-
-
 def _matrix_multiply(a: list[list[float]], b: list[list[float]]) -> list[list[float]]:
     rows = len(a)
     cols = len(b[0])
@@ -347,3 +336,66 @@ def _matrix_multiply(a: list[list[float]], b: list[list[float]]) -> list[list[fl
             for j in range(cols):
                 result[i][j] += a[i][k] * b[k][j]
     return result
+
+
+def _cholesky_decomposition(matrix: list[list[float]]) -> list[list[float]]:
+    dim = len(matrix)
+    lower = [[0.0 for _ in range(dim)] for _ in range(dim)]
+    for i in range(dim):
+        for j in range(i + 1):
+            s = sum(lower[i][k] * lower[j][k] for k in range(j))
+            if i == j:
+                value = matrix[i][i] - s
+                if value <= 0.0:
+                    raise ValueError("Matrix is not positive definite")
+                lower[i][j] = math.sqrt(value)
+            else:
+                if abs(lower[j][j]) <= 1e-12:
+                    raise ValueError("Singular matrix")
+                lower[i][j] = (matrix[i][j] - s) / lower[j][j]
+    return lower
+
+
+def _forward_substitution(lower: list[list[float]], rhs: list[list[float]]) -> list[list[float]]:
+    dim = len(lower)
+    cols = len(rhs[0])
+    result = [[0.0 for _ in range(cols)] for _ in range(dim)]
+    for i in range(dim):
+        for col in range(cols):
+            value = rhs[i][col] - sum(lower[i][k] * result[k][col] for k in range(i))
+            result[i][col] = value / lower[i][i]
+    return result
+
+
+def _backward_substitution(lower: list[list[float]], rhs: list[list[float]]) -> list[list[float]]:
+    dim = len(lower)
+    cols = len(rhs[0])
+    result = [[0.0 for _ in range(cols)] for _ in range(dim)]
+    for i in range(dim - 1, -1, -1):
+        for col in range(cols):
+            value = rhs[i][col] - sum(lower[k][i] * result[k][col] for k in range(i + 1, dim))
+            result[i][col] = value / lower[i][i]
+    return result
+
+
+def _solve_spd(matrix: list[list[float]], rhs: list[list[float]]) -> list[list[float]]:
+    lower = _cholesky_decomposition(matrix)
+    y = _forward_substitution(lower, rhs)
+    x = _backward_substitution(lower, y)
+    return x
+
+
+def _robust_inverse_list(matrix: list[list[float]], cov_regularizer: float) -> list[list[float]]:
+    dim = len(matrix)
+    identity = _identity(dim)
+    attempt = [row[:] for row in matrix]
+    jitter = max(cov_regularizer, 0.0)
+    for _ in range(5):
+        try:
+            return _solve_spd(attempt, identity)
+        except ValueError:
+            jitter = jitter * 10.0 if jitter > 0 else 1e-6
+            attempt = _add_identity(matrix, jitter)
+    return identity
+
+

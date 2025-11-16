@@ -7,6 +7,7 @@ from pathlib import Path
 
 from hirm.diagnostics.reporting import (
     compute_diagnostics_correlations,
+    has_crisis_cvar,
     load_diagnostics_results,
     plot_isi_vs_crisis_cvar,
     plot_isi_vs_ig,
@@ -21,9 +22,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--plot-dir", type=str, default=None)
     parser.add_argument(
         "--group-by",
-        type=str,
+        nargs="*",
         default=None,
-        help="Column to group by when aggregating metrics (default: method if available)",
+        help="Columns to group by when aggregating metrics (default: method if available)",
     )
     return parser.parse_args()
 
@@ -50,7 +51,7 @@ def main() -> None:
         plot_dir = Path(args.plot_dir)
         plot_dir.mkdir(parents=True, exist_ok=True)
         plot_isi_vs_ig(df, str(plot_dir / "isi_vs_ig.png"))
-        if "metrics.crisis_cvar" in df.columns:
+        if has_crisis_cvar(df):
             plot_isi_vs_crisis_cvar(df, str(plot_dir / "isi_vs_cvar.png"))
 
 

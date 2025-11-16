@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, Mapping
 
+from .crisis import compute_crisis_cvar
 from .efficiency import compute_er, compute_tr
 from .invariance import compute_ig, compute_isi
 from .robustness import compute_vr, compute_wg
@@ -19,6 +20,7 @@ __all__ = [
     "compute_vr",
     "compute_er",
     "compute_tr",
+    "compute_crisis_cvar",
 ]
 
 

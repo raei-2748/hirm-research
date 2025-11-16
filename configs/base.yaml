@@ -42,10 +42,11 @@ diagnostics:
   er:
     cvar_alpha: 0.05
     eps: 1.0e-08
-    mode: loss
+    mode: "loss"
   crisis:
     enabled: false
-    cvar_alpha: 0.95
+    cvar_alpha: 0.05
+    seed_offset: 2
   tr:
     eps: 1.0e-08
     treat_first_step: drop
