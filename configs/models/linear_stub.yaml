@@ -1,3 +1,9 @@
-name: linear_stub
-representation_dim: 8
-decision_head_dim: 2
+name: invariant_mlp
+representation:
+  hidden_dims:
+    - 8
+  activation: relu
+head:
+  hidden_dims:
+    - 2
+  activation: relu
