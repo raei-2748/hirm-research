@@ -1,2 +1,2 @@
-# Hedging with Invariant Risk Minimization
+# Head Invariant Risk Model
 This research introduce a developed hedging framework named "HIRM" (Hedging with IRM). This repository reproduces all results for “Robust Generalization for Hedging under Crisis Regime Shifts.” The release ships a deterministic pipeline that stages data, trains the invariant hedging models, generates diagnostics, and exports the camera-ready paper assets.
