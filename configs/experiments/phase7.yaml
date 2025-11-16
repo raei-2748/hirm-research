@@ -1,0 +1,46 @@
+methods: ["erm", "irm", "groupdro", "vrex", "hirm", "risk_parity"]
+datasets: ["synthetic_heston", "real_spy"]
+seeds: [0, 1, 2]
+
+defaults:
+  - base
+  - env: synthetic_heston
+  - model: mlp_small
+
+env:
+  feature_dim: 6
+  action_dim: 2
+
+training:
+  max_epochs: 25
+  batch_size: 64
+  lr: 0.001
+  early_stop_patience: 5
+
+diagnostics:
+  enabled: true
+  isi:
+    probe_layers: ["representation", "head"]
+    tau_R: 0.05
+    tau_C: 1.0
+    tau_IG: 0.05
+    alpha_components: [1.0, 1.0, 1.0]
+    eps: 1.0e-08
+    cov_regularizer: 1.0e-04
+    grad_norm_eps: 1.0e-12
+  wg:
+    alpha: 0.05
+    num_grid: 1000
+  vr:
+    eps: 1.0e-08
+  er:
+    cvar_alpha: 0.05
+    eps: 1.0e-08
+    mode: "loss"
+  crisis:
+    enabled: true
+    cvar_alpha: 0.05
+    seed_offset: 2
+  tr:
+    eps: 1.0e-08
+    treat_first_step: drop
