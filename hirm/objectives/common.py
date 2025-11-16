@@ -78,6 +78,9 @@ def _compute_pnl(batch: Dict[str, Tensor | Iterable[float]], actions: Tensor) ->
     base = _to_tensor(batch.get("base_pnl", torch.zeros(actions.shape[0], device=actions.device)))
     if base.shape[0] != actions.shape[0]:
         raise ValueError("base_pnl must align with the batch dimension")
+    # ``base_pnl`` and the hedge returns correspond to the per-timestep PnL
+    # observations currently available.  They approximate the per-episode
+    # PnL random variables used in the paper's risk definitions.
     return base + torch.sum(actions * hedge, dim=-1)
 
 
@@ -87,7 +90,13 @@ def compute_env_risks(
     env_ids: Tensor,
     risk_fn,
 ) -> Tuple[Dict[int, Tensor], Tensor, Tensor, Tensor]:
-    """Return per-environment risks, PnL, policy actions, and env ids."""
+    """Return per-environment risks, PnL, policy actions, and env ids.
+
+    In the paper the risk functional is applied to per-episode PnL.  The
+    current prototype often feeds per-timestep or flattened PnL vectors;
+    the same coherent risk functional ``risk_fn`` is used regardless of
+    granularity until full episode rollouts are available.
+    """
 
     env_tensor = _to_tensor(env_ids).long()
     if env_tensor.ndim != 1:

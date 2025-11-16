@@ -10,7 +10,7 @@ from hirm.objectives.common import compute_env_risks
 
 
 class VRExObjective:
-    """Penalize the variance of environment risks."""
+    """V-REx objective penalizing variance of environment risks."""
 
     def __init__(self, cfg: Any) -> None:
         self.penalty_weight = float(getattr(cfg, "penalty_weight", getattr(cfg, "beta", 10.0)))

@@ -10,7 +10,7 @@ from hirm.objectives.common import compute_env_risks
 
 
 class ERMObjective:
-    """Plain average of per-environment risk."""
+    """ERM baseline minimizing the mean environment risk from the paper."""
 
     def __init__(self, cfg: Any) -> None:
         self.cfg = cfg

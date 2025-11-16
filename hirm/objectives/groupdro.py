@@ -11,7 +11,7 @@ from hirm.objectives.common import compute_env_risks
 
 
 class GroupDROObjective:
-    """Group Distributionally-Robust Optimization."""
+    """Group DRO objective minimizing the worst-environment risk."""
 
     def __init__(self, cfg: Any) -> None:
         self.step_size = float(getattr(cfg, "step_size", 0.05))

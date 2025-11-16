@@ -12,7 +12,7 @@ RiskFn = Callable[[Tensor], Tensor]
 
 
 def build_risk_function(cfg_objective) -> RiskFn:  # type: ignore[no-untyped-def]
-    """Instantiate a coherent risk function from ``cfg_objective``."""
+    """Instantiate the coherent risk functional described in the paper."""
 
     risk_cfg = getattr(cfg_objective, "risk", None)
     name = None
@@ -31,7 +31,12 @@ def build_risk_function(cfg_objective) -> RiskFn:  # type: ignore[no-untyped-def
 
 
 def make_cvar(alpha: float = 0.95) -> RiskFn:
-    """Return a differentiable Conditional Value-at-Risk closure."""
+    """Return a differentiable Conditional Value-at-Risk closure.
+
+    CVaR operates on a vector of PnL outcomes.  We convert PnL into losses
+    via ``-pnl`` so that the expected loss in the worst ``(1 - alpha)`` tail
+    matches the paper's sign convention.
+    """
 
     if not 0.0 < alpha <= 1.0:
         raise ValueError("alpha must be in (0, 1]")
