@@ -11,7 +11,7 @@ from hirm.objectives.common import compute_env_risks, flatten_head_gradients
 
 
 class HIRMObjective:
-    """Encourages alignment of head gradients across environments."""
+    """Head-Invariant Risk Minimization objective operating on head gradients."""
 
     def __init__(self, cfg: Any) -> None:
         self.lambda_invariance = float(getattr(cfg, "lambda_invariance", 1.0))

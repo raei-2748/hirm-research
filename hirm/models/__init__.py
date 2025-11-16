@@ -7,7 +7,7 @@ from hirm.models.policy import InvariantPolicy
 
 
 def build_model(cfg_model: Any, input_dim: int, action_dim: int) -> InvariantPolicy:
-    """Instantiate the configured policy model.
+    """Instantiate the invariant policy described in the HIRM paper.
 
     Parameters
     ----------

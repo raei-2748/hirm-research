@@ -10,7 +10,7 @@ from hirm.objectives.common import compute_env_risks, compute_pnl_from_actions
 
 
 class IRMv1Objective:
-    """Classic IRMv1 objective enforcing invariant optimal heads."""
+    """Classic IRMv1 objective with a scalar scale penalty."""
 
     def __init__(self, cfg: Any) -> None:
         self.penalty_weight = float(getattr(cfg, "penalty_weight", 100.0))
@@ -48,7 +48,7 @@ class IRMv1Objective:
         risk_fn,
     ) -> Tensor:
         scale = torch.tensor(1.0, device=actions.device, requires_grad=True)
-        penalty = torch.zeros(1, device=actions.device)
+        penalty = torch.tensor(0.0, device=actions.device)
         unique_envs = torch.unique(env_tensor, sorted=True)
         for env in unique_envs:
             mask = env_tensor == env

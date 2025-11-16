@@ -7,6 +7,9 @@ experiment:
   name: tiny_test
 training:
   episodes_per_env: 2
-  num_steps: 2
+  num_steps: 60
+  batch_size: 32
+  dataset_size: 256
+  num_envs: 2
   lr: 0.001
   eval_episodes_per_env: 1

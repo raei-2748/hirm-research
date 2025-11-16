@@ -11,7 +11,7 @@ from hirm.objectives.vrex import VRExObjective
 
 
 def build_objective(cfg_objective: Any):
-    """Instantiate an objective callable from configuration."""
+    """Instantiate one of the Phase-4 objectives from configuration."""
 
     name = getattr(cfg_objective, "name", None)
     if not name:

@@ -9,7 +9,13 @@ from hirm.models.modules import build_mlp, resolve_activation
 
 
 class InvariantPolicy(nn.Module):
-    """Policy with a learnable representation ``f_phi`` and head ``w_psi``."""
+    """Two-stage policy :math:`\pi_\theta(x) = w_\psi(f_\phi(x))` from the paper.
+
+    The representation ``f_\phi`` ingests state features ``x_t = (\Phi_t, r_t)``
+    while the head ``w_\psi`` maps the invariant representation to hedge
+    actions.  Phase-4 objectives (ERM, GroupDRO, V-REx, IRMv1, HIRM) act on the
+    split parameterization of ``\phi`` and ``\psi``.
+    """
 
     def __init__(
         self,
@@ -81,6 +87,13 @@ def _build_head(
     activation: str | None,
     dropout: float,
 ) -> nn.Sequential:
+    """Construct the head network without forcing hidden layers.
+
+    We keep this helper separate from ``build_mlp`` so that the head can be a
+    single linear layer (``hidden_dims`` empty) without adding additional
+    special-casing to the shared module builder.
+    """
+
     layers: list[nn.Module] = []
     prev = input_dim
     act_module = resolve_activation(activation)
