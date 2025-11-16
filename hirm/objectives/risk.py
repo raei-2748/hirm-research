@@ -1,12 +1,11 @@
 """Risk function builders."""
 from __future__ import annotations
 
-import math
 from typing import Callable
 
-import torch
 from torch import Tensor
 
+from hirm.utils.risk import compute_cvar
 
 RiskFn = Callable[[Tensor], Tensor]
 
@@ -45,10 +44,7 @@ def make_cvar(alpha: float = 0.95) -> RiskFn:
         if pnl.numel() == 0:
             raise ValueError("pnl tensor must be non-empty")
         losses = -pnl.reshape(-1)
-        sorted_losses, _ = torch.sort(losses)
-        tail_fraction = max(1, int(math.ceil(sorted_losses.numel() * (1 - alpha))))
-        tail = sorted_losses[:tail_fraction]
-        return tail.mean()
+        return compute_cvar(losses, alpha=alpha)
 
     return _cvar
 

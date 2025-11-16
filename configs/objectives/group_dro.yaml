@@ -1,0 +1,4 @@
+name: group_dro
+alpha: 0.95
+group_dro_smooth: false
+group_dro_temperature: 1.0

@@ -8,6 +8,7 @@ import torch
 
 from hirm.models import build_model
 from hirm.objectives import build_objective
+from hirm.objectives.common import compute_env_risks
 from hirm.objectives.risk import build_risk_function
 from hirm.utils.config import load_config
 
@@ -104,7 +105,7 @@ def main() -> None:
     dataset = {key: value.to(device) for key, value in dataset.items()}
 
     model = build_model(cfg.model, input_dim=feature_dim, action_dim=action_dim).to(device)
-    objective = build_objective(cfg.objective)
+    objective = build_objective(cfg, device=device)
     risk_fn = build_risk_function(cfg.objective)
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
 
@@ -117,13 +118,32 @@ def main() -> None:
         env_ids = batch["env_ids"]
         optimizer.zero_grad(set_to_none=True)
         model.train()
-        loss, logs = objective(model, batch, env_ids, risk_fn)
+        env_risks_raw, pnl, actions, env_tensor = compute_env_risks(
+            model, batch, env_ids, risk_fn
+        )
+        env_risks = {f"env_{env}": risk for env, risk in env_risks_raw.items()}
+        extra_state = {
+            "pnl": pnl,
+            "actions": actions,
+            "env_tensor": env_tensor,
+            "risk_fn": risk_fn,
+        }
+        loss = objective.compute_loss(env_risks, model, batch, extra_state=extra_state)
         loss.backward()
         optimizer.step()
+        logs = {
+            "train/loss": loss.detach(),
+            "train/pnl/mean": pnl.mean().detach(),
+        }
+        for env_name, risk in env_risks.items():
+            logs[f"train/env/{env_name}/risk"] = risk.detach()
+        if "hirm_alignment" in extra_state:
+            logs["train/hirm/alignment"] = extra_state["hirm_alignment"]
+        logs.update(objective.get_latest_logs())
         if step % 10 == 0 or step == num_steps - 1:
-            risk_mean = logs.get("risk/mean", torch.tensor(float("nan")))
+            mean_risk = logs.get("train/objective/mean_risk", torch.tensor(float("nan")))
             print(
-                f"step={step:04d} loss={loss.item():.4f} risk_mean={float(risk_mean):.4f}"
+                f"step={step:04d} loss={loss.item():.4f} risk_mean={float(mean_risk):.4f}"
             )
 
     print("Finished tiny experiment.")
