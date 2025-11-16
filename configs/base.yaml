@@ -3,8 +3,50 @@ experiment:
 logging:
   output_dir: outputs
 seed: 7
+data:
+  name: synthetic_sandbox
+  splits:
+    train:
+      name: synthetic_train
+      num_samples: 512
+      seed_offset: 0
+    test:
+      name: synthetic_test
+      num_samples: 512
+      seed_offset: 1
+    crisis:
+      name: synthetic_crisis
+      num_samples: 512
+      seed_offset: 11
 training:
   episodes_per_env: 2
   num_steps: 3
   lr: 0.001
   eval_episodes_per_env: 1
+diagnostics:
+  enabled: false
+  isi:
+    probe_layers: ["representation", "head"]
+    tau_R: 0.05
+    tau_C: 1.0
+    tau_IG: 0.05
+    alpha_components: [1.0, 1.0, 1.0]
+    eps: 1.0e-08
+    cov_regularizer: 0.0001
+    grad_norm_eps: 1.0e-12
+  wg:
+    alpha: 0.05
+    num_grid: 1000
+  vr:
+    eps: 1.0e-08
+  er:
+    cvar_alpha: 0.05
+    eps: 1.0e-08
+    mode: "loss"
+  crisis:
+    enabled: false
+    cvar_alpha: 0.05
+    seed_offset: 2
+  tr:
+    eps: 1.0e-08
+    treat_first_step: drop
