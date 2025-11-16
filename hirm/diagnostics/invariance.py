@@ -1,9 +1,14 @@
 """Invariance diagnostics (Section 5.1 of the HIRM paper)."""
 from __future__ import annotations
 
-import math
 import itertools
+import math
 from typing import Any, Dict, Mapping, Sequence
+
+try:  # pragma: no cover - optional dependency
+    import torch
+except Exception:  # pragma: no cover - optional dependency
+    torch = None  # type: ignore[assignment]
 
 
 def _to_flat_list(value: Any) -> list[float]:
@@ -70,7 +75,203 @@ def _pairwise_cosine(vectors: Sequence[list[float]]) -> Sequence[float]:
     return cosines
 
 
-def _covariance(matrix: list[list[float]]) -> list[list[float]]:
+def _covariance_torch(matrix: list[list[float]]):
+    if torch is None:  # pragma: no cover - guard
+        raise RuntimeError("Torch is not available")
+    if not matrix:
+        return torch.zeros((1, 1), dtype=torch.float64)
+    tensor = torch.tensor(matrix, dtype=torch.float64)
+    if tensor.ndim == 1:
+        tensor = tensor.unsqueeze(1)
+    if tensor.shape[0] <= 1:
+        dim = tensor.shape[1]
+        return torch.zeros((dim, dim), dtype=torch.float64)
+    centered = tensor - tensor.mean(dim=0, keepdim=True)
+    return centered.t().mm(centered) / (tensor.shape[0] - 1)
+
+
+def _robust_inverse_torch(matrix, cov_regularizer: float):
+    if torch is None:  # pragma: no cover - guard
+        raise RuntimeError("Torch is not available")
+    if matrix.numel() == 0:
+        return matrix
+    identity = torch.eye(matrix.shape[0], dtype=matrix.dtype)
+    attempt = matrix.clone()
+    jitter = max(cov_regularizer, 0.0)
+    for _ in range(5):
+        try:
+            return torch.linalg.inv(attempt)
+        except RuntimeError:
+            jitter = jitter * 10.0 if jitter > 0 else 1e-6
+            attempt = matrix + jitter * identity
+    return torch.linalg.pinv(attempt)
+
+
+def compute_isi(
+    env_risks: Mapping[str, float],
+    head_gradients: Mapping[str, Any],
+    layer_activations: Mapping[str, Mapping[str, Any]],
+    tau_R: float,
+    tau_C: float,
+    alpha_components: Sequence[float],
+    eps: float,
+    cov_regularizer: float,
+    grad_norm_eps: float = 1e-12,
+    trim_fraction: float = 0.1,
+) -> Dict[str, float]:
+    """Compute the Internal Stability Index (Eq. 7)."""
+
+    if len(alpha_components) != 3:
+        raise ValueError("alpha_components must contain three weights")
+    risk_values = [float(v) for v in env_risks.values()]
+    if len(risk_values) > 1:
+        mean_risk = sum(risk_values) / len(risk_values)
+        variance = sum((v - mean_risk) ** 2 for v in risk_values) / (len(risk_values) - 1)
+    else:
+        variance = 0.0
+    c1_raw = 1.0 - min(1.0, variance / (tau_R + eps))
+    c1_raw = max(0.0, min(1.0, c1_raw))
+
+    normalized_grads: list[list[float]] = []
+    for env_id in env_risks:
+        grad = head_gradients.get(env_id)
+        if grad is None:
+            continue
+        vec = _to_flat_list(grad)
+        if not vec:
+            continue
+        norm = _vector_norm(vec)
+        if norm <= grad_norm_eps:
+            continue
+        normalized_grads.append([v / (norm + grad_norm_eps) for v in vec])
+    if normalized_grads:
+        cosines = _pairwise_cosine(normalized_grads)
+        alignments = [float((1.0 + c) / 2.0) for c in cosines]
+        c2_raw = float(sum(alignments) / len(alignments))
+        c2_trim = max(0.0, min(1.0, _trimmed_mean(alignments, trim_fraction)))
+    else:
+        c2_raw = 0.0
+        c2_trim = 0.0
+    c2_raw = max(0.0, min(1.0, c2_raw))
+
+    dispersion_values: list[float] = []
+    use_torch = torch is not None
+    for env_map in layer_activations.values():
+        if use_torch:
+            dispersion_values.extend(
+                _layer_dispersion_torch(env_map, env_risks, cov_regularizer)
+            )
+        else:
+            dispersion_values.extend(
+                _layer_dispersion_python(env_map, env_risks, cov_regularizer)
+            )
+    if dispersion_values:
+        raw_disp = sum(dispersion_values) / len(dispersion_values)
+        trimmed_disp = _trimmed_mean(dispersion_values, trim_fraction)
+        c3_raw = 1.0 - min(1.0, raw_disp / (tau_C + eps))
+        c3_trim = 1.0 - min(1.0, trimmed_disp / (tau_C + eps))
+    else:
+        c3_raw = 1.0
+        c3_trim = 1.0
+    c3_raw = max(0.0, min(1.0, c3_raw))
+    c3_trim = max(0.0, min(1.0, c3_trim))
+
+    # C1 is a single statistic; trimming is a no-op but returned for API symmetry.
+    c1_trim = c1_raw
+
+    total_alpha = max(sum(alpha_components), eps)
+    isi = (
+        alpha_components[0] * c1_trim
+        + alpha_components[1] * c2_trim
+        + alpha_components[2] * c3_trim
+    ) / total_alpha
+    isi = max(0.0, min(1.0, isi))
+
+    return {
+        "ISI": isi,
+        "ISI_C1": c1_raw,
+        "ISI_C2": c2_raw,
+        "ISI_C3": c3_raw,
+        "ISI_C1_trimmed": c1_trim,
+        "ISI_C2_trimmed": c2_trim,
+        "ISI_C3_trimmed": c3_trim,
+    }
+
+
+def compute_ig(
+    test_env_risks: Mapping[str, float],
+    tau_IG: float,
+    eps: float,
+) -> Dict[str, float]:
+    """Compute the outcome-level invariance gap (Eq. 8)."""
+
+    values = [float(v) for v in test_env_risks.values()]
+    if not values:
+        raise ValueError("test_env_risks cannot be empty")
+    ig = max(values) - min(values)
+    ig_norm = ig / (tau_IG + eps)
+    return {"IG": ig, "IG_norm": ig_norm}
+
+
+__all__ = ["compute_isi", "compute_ig"]
+def _layer_dispersion_torch(
+    env_map: Mapping[str, Any],
+    env_risks: Mapping[str, float],
+    cov_regularizer: float,
+) -> list[float]:
+    if torch is None:
+        return []
+    covariances = []
+    for env_id in env_risks:
+        if env_id not in env_map:
+            continue
+        acts = _to_matrix(env_map[env_id])
+        covariances.append(_covariance_torch(acts))
+    if not covariances:
+        return []
+    dim = covariances[0].shape[0]
+    avg_cov = torch.stack(covariances, dim=0).mean(dim=0)
+    ref_cov = avg_cov + cov_regularizer * torch.eye(dim, dtype=avg_cov.dtype)
+    ref_inv = _robust_inverse_torch(ref_cov, cov_regularizer)
+    eye = torch.eye(dim, dtype=avg_cov.dtype)
+    values: list[float] = []
+    for cov in covariances:
+        cov_reg = cov + cov_regularizer * eye
+        trace_val = float(torch.trace(ref_inv @ cov_reg).item())
+        values.append(abs(trace_val - dim))
+    return values
+
+
+def _layer_dispersion_python(
+    env_map: Mapping[str, Any],
+    env_risks: Mapping[str, float],
+    cov_regularizer: float,
+) -> list[float]:
+    covariances = []
+    for env_id in env_risks:
+        if env_id not in env_map:
+            continue
+        acts = _to_matrix(env_map[env_id])
+        covariances.append(_covariance_list(acts))
+    if not covariances:
+        return []
+    dim = len(covariances[0])
+    avg_cov = [[0.0 for _ in range(dim)] for _ in range(dim)]
+    for cov in covariances:
+        for i in range(dim):
+            for j in range(dim):
+                avg_cov[i][j] += cov[i][j] / len(covariances)
+    ref_cov = _add_identity(avg_cov, cov_regularizer)
+    ref_inv = _matrix_inverse(ref_cov)
+    values: list[float] = []
+    for cov in covariances:
+        cov_reg = _add_identity(cov, cov_regularizer)
+        trace_val = _matrix_trace(_matrix_multiply(ref_inv, cov_reg))
+        values.append(abs(trace_val - dim))
+    return values
+
+
+def _covariance_list(matrix: list[list[float]]) -> list[list[float]]:
     if not matrix:
         return [[0.0]]
     if len(matrix[0]) == 0:
@@ -136,102 +337,6 @@ def _matrix_inverse(matrix: list[list[float]]) -> list[list[float]]:
     return [row[n:] for row in aug]
 
 
-def compute_isi(
-    env_risks: Mapping[str, float],
-    head_gradients: Mapping[str, Any],
-    layer_activations: Mapping[str, Mapping[str, Any]],
-    tau_R: float,
-    tau_C: float,
-    alpha_components: Sequence[float],
-    eps: float,
-    cov_regularizer: float,
-    grad_norm_eps: float = 1e-12,
-    trim_fraction: float = 0.1,
-) -> Dict[str, float]:
-    """Compute the Internal Stability Index (Eq. 7)."""
-
-    if len(alpha_components) != 3:
-        raise ValueError("alpha_components must contain three weights")
-    risk_values = [float(v) for v in env_risks.values()]
-    if len(risk_values) > 1:
-        mean_risk = sum(risk_values) / len(risk_values)
-        variance = sum((v - mean_risk) ** 2 for v in risk_values) / (len(risk_values) - 1)
-    else:
-        variance = 0.0
-    c1_raw = 1.0 - min(1.0, variance / (tau_R + eps))
-    c1_raw = max(0.0, min(1.0, c1_raw))
-
-    normalized_grads: list[list[float]] = []
-    for env_id in env_risks:
-        grad = head_gradients.get(env_id)
-        if grad is None:
-            continue
-        vec = _to_flat_list(grad)
-        if not vec:
-            continue
-        norm = _vector_norm(vec)
-        if norm <= grad_norm_eps:
-            continue
-        normalized_grads.append([v / (norm + grad_norm_eps) for v in vec])
-    if normalized_grads:
-        cosines = _pairwise_cosine(normalized_grads)
-        c2_raw = float(sum((1.0 + c) / 2.0 for c in cosines) / len(cosines))
-    else:
-        c2_raw = 0.0
-    c2_raw = max(0.0, min(1.0, c2_raw))
-
-    dispersion_values: list[float] = []
-    for env_map in layer_activations.values():
-        covariances = []
-        for env_id in env_risks:
-            if env_id not in env_map:
-                continue
-            acts = _to_matrix(env_map[env_id])
-            covariances.append(_covariance(acts))
-        if not covariances:
-            continue
-        dim = len(covariances[0])
-        avg_cov = [[0.0 for _ in range(dim)] for _ in range(dim)]
-        for cov in covariances:
-            for i in range(dim):
-                for j in range(dim):
-                    avg_cov[i][j] += cov[i][j] / len(covariances)
-        ref_cov = _add_identity(avg_cov, cov_regularizer)
-        ref_inv = _matrix_inverse(ref_cov)
-        for cov in covariances:
-            cov_reg = _add_identity(cov, cov_regularizer)
-            trace_val = _matrix_trace(_matrix_multiply(ref_inv, cov_reg))
-            dispersion_values.append(abs(trace_val - dim))
-    if dispersion_values:
-        mean_disp = sum(dispersion_values) / len(dispersion_values)
-        c3_raw = 1.0 - min(1.0, mean_disp / (tau_C + eps))
-    else:
-        c3_raw = 1.0
-    c3_raw = max(0.0, min(1.0, c3_raw))
-
-    c1_trim = _trimmed_mean([c1_raw], trim_fraction)
-    c2_trim = _trimmed_mean([c2_raw], trim_fraction)
-    c3_trim = _trimmed_mean([c3_raw], trim_fraction)
-
-    total_alpha = max(sum(alpha_components), eps)
-    isi = (
-        alpha_components[0] * c1_trim
-        + alpha_components[1] * c2_trim
-        + alpha_components[2] * c3_trim
-    ) / total_alpha
-    isi = max(0.0, min(1.0, isi))
-
-    return {
-        "ISI": isi,
-        "ISI_C1": c1_raw,
-        "ISI_C2": c2_raw,
-        "ISI_C3": c3_raw,
-        "ISI_C1_trimmed": c1_trim,
-        "ISI_C2_trimmed": c2_trim,
-        "ISI_C3_trimmed": c3_trim,
-    }
-
-
 def _matrix_multiply(a: list[list[float]], b: list[list[float]]) -> list[list[float]]:
     rows = len(a)
     cols = len(b[0])
@@ -242,21 +347,3 @@ def _matrix_multiply(a: list[list[float]], b: list[list[float]]) -> list[list[fl
             for j in range(cols):
                 result[i][j] += a[i][k] * b[k][j]
     return result
-
-
-def compute_ig(
-    test_env_risks: Mapping[str, float],
-    tau_IG: float,
-    eps: float,
-) -> Dict[str, float]:
-    """Compute the outcome-level invariance gap (Eq. 8)."""
-
-    values = [float(v) for v in test_env_risks.values()]
-    if not values:
-        raise ValueError("test_env_risks cannot be empty")
-    ig = max(values) - min(values)
-    ig_norm = ig / (tau_IG + eps)
-    return {"IG": ig, "IG_norm": ig_norm}
-
-
-__all__ = ["compute_isi", "compute_ig"]
