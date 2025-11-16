@@ -4,7 +4,7 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
-from typing import Dict, Iterable, Mapping
+from typing import Any, Dict, Iterable, Mapping, Tuple
 
 import torch
 
@@ -13,6 +13,7 @@ from hirm.diagnostics import compute_all_diagnostics
 from hirm.objectives.common import concat_state, compute_env_risks
 from hirm.objectives.risk import build_risk_function
 from hirm.utils.config import load_config
+from hirm.utils.math import cvar
 from hirm.models import build_model
 
 
@@ -23,6 +24,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--results-dir", type=str, default="outputs/diagnostics")
     parser.add_argument("--device", type=str, default="cpu")
     parser.add_argument("--model-name", type=str, default=None)
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Run diagnostics even if the config disables them",
+    )
     return parser.parse_args()
 
 
@@ -104,41 +110,115 @@ def _build_dataset(cfg, generator: torch.Generator, num_samples: int):  # type: 
     return dataset, feature_dim, action_dim
 
 
-def main() -> None:
-    args = parse_args()
-    cfg = load_config(args.config)
+def _get_attr(node: Any, key: str, default: Any) -> Any:
+    if node is None:
+        return default
+    if isinstance(node, dict):
+        return node.get(key, default)
+    return getattr(node, key, default)
+
+
+def _resolve_split_spec(
+    cfg,
+    split_name: str,
+    default_num_samples: int,
+    default_seed_offset: int,
+) -> Tuple[int, int, str]:
+    data_cfg = getattr(cfg, "data", None)
+    splits = getattr(data_cfg, "splits", None) if data_cfg is not None else None
+    split_cfg = None
+    if splits is not None:
+        if isinstance(splits, dict):
+            split_cfg = splits.get(split_name)
+        else:
+            split_cfg = getattr(splits, split_name, None)
+    num_samples = int(
+        _get_attr(split_cfg, "num_samples", _get_attr(split_cfg, "dataset_size", default_num_samples))
+    )
+    seed_offset = int(_get_attr(split_cfg, "seed_offset", default_seed_offset))
+    label = str(_get_attr(split_cfg, "name", split_name))
+    return num_samples, seed_offset, label
+
+
+def _load_split_batch(
+    cfg,
+    device: torch.device,
+    base_seed: int,
+    split_name: str,
+    default_size: int,
+    default_offset: int,
+):
+    num_samples, seed_offset, label = _resolve_split_spec(
+        cfg, split_name, default_size, default_offset
+    )
+    generator = torch.Generator().manual_seed(base_seed + seed_offset)
+    dataset, feature_dim, action_dim = _build_dataset(cfg, generator, num_samples)
+    batch = _to_device(dataset, device)
+    return batch, feature_dim, action_dim, label
+
+
+def run_diagnostics_from_config(
+    cfg,
+    *,
+    checkpoint: str | None = None,
+    results_dir: str = "outputs/diagnostics",
+    device: str = "cpu",
+    model_name: str | None = None,
+    force: bool = False,
+):
+    diag_cfg = getattr(cfg, "diagnostics", {})
+    enabled = bool(getattr(diag_cfg, "enabled", True))
+    if not enabled and not force:
+        print("Diagnostics disabled by config; skipping run.")
+        return None
+
     seed = int(getattr(cfg, "seed", 0))
     torch.manual_seed(seed)
-    device = torch.device(args.device)
+    device_obj = torch.device(device)
     train_cfg = getattr(cfg, "training", None)
-    dataset_size = int(getattr(train_cfg, "dataset_size", 512) or 512)
-    generator = torch.Generator().manual_seed(seed)
-    dataset, feature_dim, action_dim = _build_dataset(cfg, generator, dataset_size)
-    batch = _to_device(dataset, device)
-    eval_generator = torch.Generator().manual_seed(seed + 1)
-    eval_dataset, _, _ = _build_dataset(cfg, eval_generator, dataset_size)
-    eval_batch = _to_device(eval_dataset, device)
+    dataset_size = int(_get_attr(train_cfg, "dataset_size", 512))
 
-    model = build_model(cfg.model, input_dim=feature_dim, action_dim=action_dim).to(device)
-    if args.checkpoint:
-        state = torch.load(args.checkpoint, map_location=device)
+    train_batch, feature_dim, action_dim, train_label = _load_split_batch(
+        cfg, device_obj, seed, "train", dataset_size, 0
+    )
+    test_batch, _, _, test_label = _load_split_batch(
+        cfg, device_obj, seed, "test", dataset_size, 1
+    )
+
+    crisis_batch = None
+    crisis_label = None
+    crisis_cfg = getattr(diag_cfg, "crisis", {})
+    if crisis_cfg.get("enabled", False):
+        crisis_batch, _, _, crisis_label = _load_split_batch(
+            cfg,
+            device_obj,
+            seed,
+            "crisis",
+            dataset_size,
+            int(_get_attr(crisis_cfg, "seed_offset", 2)),
+        )
+
+    model = build_model(cfg.model, input_dim=feature_dim, action_dim=action_dim).to(device_obj)
+    if checkpoint:
+        state = torch.load(checkpoint, map_location=device_obj)
         if isinstance(state, dict):
             model.load_state_dict(state)
     model.eval()
 
     risk_fn = build_risk_function(cfg.objective)
-    env_risks_tensor, pnl, actions, _ = compute_env_risks(
-        model, batch, batch["env_ids"], risk_fn
+    env_risks_tensor, pnl, _, env_tensor = compute_env_risks(
+        model, train_batch, train_batch["env_ids"], risk_fn
     )
     env_risks = {_format_env(env): float(risk.detach().cpu()) for env, risk in env_risks_tensor.items()}
     head_gradients = _collect_head_gradients(model, env_risks_tensor)
-    diag_cfg = getattr(cfg, "diagnostics", {})
     isi_cfg = getattr(diag_cfg, "isi", {})
     probe_layers = isi_cfg.get("probe_layers", ["representation", "head"])
-    layer_activations = _collect_layer_activations(model, batch, batch["env_ids"], probe_layers)
+    layer_activations = _collect_layer_activations(
+        model, train_batch, env_tensor, probe_layers
+    )
 
     test_env_risks_tensor, eval_pnl, eval_actions, _ = compute_env_risks(
-        model, eval_batch, eval_batch["env_ids"], risk_fn
+        model, test_batch, test_batch["env_ids"], risk_fn
     )
     test_env_risks = {
         _format_env(env): float(risk.detach().cpu()) for env, risk in test_env_risks_tensor.items()
@@ -155,6 +235,7 @@ def main() -> None:
             "eps": float(isi_cfg.get("eps", 1e-8)),
             "cov_regularizer": float(isi_cfg.get("cov_regularizer", 1e-4)),
             "grad_norm_eps": float(isi_cfg.get("grad_norm_eps", 1e-12)),
+            "trim_fraction": float(isi_cfg.get("trim_fraction", 0.1)),
         },
         "ig_inputs": {
             "test_env_risks": test_env_risks,
@@ -185,6 +266,7 @@ def main() -> None:
             "returns_time_series": eval_pnl.detach().cpu().tolist(),
             "cvar_alpha": float(diag_er.get("cvar_alpha", 0.05)),
             "eps": float(diag_er.get("eps", 1e-8)),
+            "mode": str(diag_er.get("mode", "loss")),
         },
         "tr_inputs": {
             "actions": eval_actions.detach().cpu().tolist(),
@@ -199,20 +281,59 @@ def main() -> None:
         efficiency_inputs=efficiency_inputs,
     )
 
-    results_dir = Path(args.results_dir)
-    results_dir.mkdir(parents=True, exist_ok=True)
+    if crisis_batch is not None and crisis_cfg.get("enabled", False):
+        _, crisis_pnl, _, _ = compute_env_risks(
+            model, crisis_batch, crisis_batch["env_ids"], risk_fn
+        )
+        crisis_losses = (-crisis_pnl.detach().cpu()).tolist()
+        crisis_alpha = float(crisis_cfg.get("cvar_alpha", 0.95))
+        crisis_metric_name = f"crisis_cvar{int(round(crisis_alpha * 100))}"
+        metrics[crisis_metric_name] = float(cvar(crisis_losses, alpha=crisis_alpha))
+
+    results_dir_path = Path(results_dir)
+    results_dir_path.mkdir(parents=True, exist_ok=True)
+
+    env_cfg = getattr(cfg, "env", {})
+    env_config = str(
+        _get_attr(env_cfg, "name", _get_attr(env_cfg, "config_path", "unknown_env"))
+    )
+    data_cfg = getattr(cfg, "data", {})
+    dataset_name = str(_get_attr(data_cfg, "name", "unknown_data"))
+    method = str(_get_attr(getattr(cfg, "objective", {}), "name", "unknown"))
+    split_info = {"train": train_label, "test": test_label}
+    if crisis_label:
+        split_info["crisis"] = crisis_label
+
     record = {
         "experiment_id": cfg.experiment.name,
-        "model_name": args.model_name or getattr(cfg.model, "name", "model"),
+        "model_name": model_name or getattr(cfg.model, "name", "model"),
+        "method": method,
         "seed": seed,
-        "checkpoint": args.checkpoint,
+        "checkpoint": checkpoint,
+        "env_config": env_config,
+        "dataset_name": dataset_name,
+        "split_info": split_info,
         "metrics": metrics,
     }
-    out_path = results_dir / "diagnostics.jsonl"
+    out_path = results_dir_path / "diagnostics.jsonl"
     with out_path.open("a", encoding="utf-8") as handle:
         handle.write(json.dumps(record) + "\n")
     pretty = ", ".join(f"{key}={value:.4f}" for key, value in metrics.items())
     print(f"Diagnostics for {record['model_name']}: {pretty}")
+    return metrics
+
+
+def main() -> None:
+    args = parse_args()
+    cfg = load_config(args.config)
+    run_diagnostics_from_config(
+        cfg,
+        checkpoint=args.checkpoint,
+        results_dir=args.results_dir,
+        device=args.device,
+        model_name=args.model_name,
+        force=args.force,
+    )
 
 
 if __name__ == "__main__":

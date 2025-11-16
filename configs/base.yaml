@@ -3,6 +3,21 @@ experiment:
 logging:
   output_dir: outputs
 seed: 7
+data:
+  name: synthetic_sandbox
+  splits:
+    train:
+      name: synthetic_train
+      num_samples: 512
+      seed_offset: 0
+    test:
+      name: synthetic_test
+      num_samples: 512
+      seed_offset: 1
+    crisis:
+      name: synthetic_crisis
+      num_samples: 512
+      seed_offset: 11
 training:
   episodes_per_env: 2
   num_steps: 3
@@ -27,6 +42,10 @@ diagnostics:
   er:
     cvar_alpha: 0.05
     eps: 1.0e-08
+    mode: loss
+  crisis:
+    enabled: false
+    cvar_alpha: 0.95
   tr:
     eps: 1.0e-08
     treat_first_step: drop

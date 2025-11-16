@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any, Dict, Iterable, List
+from typing import Any, Dict, Iterable, List, Optional
 
 try:  # pragma: no cover - optional dependency
     import matplotlib.pyplot as plt
@@ -52,39 +52,49 @@ def load_diagnostics_results(paths: List[str]) -> "pd.DataFrame":  # type: ignor
     return pandas.DataFrame.from_records(records)
 
 
+def _resolve_crisis_column(df) -> Optional[str]:  # type: ignore[no-untyped-def]
+    for column in ("metrics.crisis_cvar95", "metrics.crisis_cvar"):
+        if column in df.columns:
+            return column
+    for column in df.columns:
+        if column.startswith("metrics.crisis_cvar"):
+            return column
+    return None
+
+
 def compute_diagnostics_correlations(df) -> Dict[str, float]:  # type: ignore[no-untyped-def]
     """Compute pairwise correlations between canonical metrics."""
 
     pandas = _require_pandas()
     if df.empty:
         return {}
-    required = {
-        "metrics.ISI": None,
-        "metrics.IG": None,
-        "metrics.crisis_cvar": None,
-    }
-    available = {col for col in df.columns if col in required}
     results: Dict[str, float] = {}
-    if {"metrics.ISI", "metrics.IG"}.issubset(available):
+    if {"metrics.ISI", "metrics.IG"}.issubset(df.columns):
         results["corr(ISI, IG)"] = float(df["metrics.ISI"].corr(df["metrics.IG"]))
-    if {"metrics.ISI", "metrics.crisis_cvar"}.issubset(available):
-        results["corr(ISI, crisis_cvar)"] = float(
-            df["metrics.ISI"].corr(df["metrics.crisis_cvar"])
-        )
-    if {"metrics.IG", "metrics.crisis_cvar"}.issubset(available):
-        results["corr(IG, crisis_cvar)"] = float(
-            df["metrics.IG"].corr(df["metrics.crisis_cvar"])
-        )
+    crisis_col = _resolve_crisis_column(df)
+    if crisis_col:
+        label = crisis_col.split(".", 1)[-1]
+        if "metrics.ISI" in df.columns:
+            results[f"corr(ISI, {label})"] = float(df["metrics.ISI"].corr(df[crisis_col]))
+        if "metrics.IG" in df.columns:
+            results[f"corr(IG, {label})"] = float(df["metrics.IG"].corr(df[crisis_col]))
     return results
 
 
-def summarize_diagnostics_by_method(df) -> "pd.DataFrame":  # type: ignore[name-defined, no-untyped-def]
+def summarize_diagnostics_by_method(
+    df, group_by: Optional[str] = None
+) -> "pd.DataFrame":  # type: ignore[name-defined, no-untyped-def]
     """Group diagnostics by method/model and report mean/std."""
 
     pandas = _require_pandas()
     if df.empty:
         return pandas.DataFrame()
-    group_key = "method" if "method" in df.columns else "model_name"
+    if group_by is not None:
+        if group_by not in df.columns:
+            raise KeyError(f"Group-by column '{group_by}' not present in diagnostics")
+        group_key = group_by
+    else:
+        group_key = "method" if "method" in df.columns else "model_name"
     if group_key not in df.columns:
         raise KeyError("Diagnostics results must contain 'method' or 'model_name'")
     metric_cols = [col for col in df.columns if col.startswith("metrics.")]
@@ -117,10 +127,13 @@ def plot_isi_vs_crisis_cvar(df, out_path: str) -> None:  # type: ignore[no-untyp
         raise ImportError("matplotlib is required for plotting")
     if df.empty:
         raise ValueError("Dataframe is empty")
+    crisis_col = _resolve_crisis_column(df)
+    if crisis_col is None:
+        raise KeyError("No crisis CVaR column present in diagnostics")
     fig, ax = plt.subplots()
-    ax.scatter(df["metrics.ISI"], df["metrics.crisis_cvar"], c="tab:red")
+    ax.scatter(df["metrics.ISI"], df[crisis_col], c="tab:red")
     ax.set_xlabel("Internal Stability Index (ISI)")
-    ax.set_ylabel("Crisis CVaR")
+    ax.set_ylabel(crisis_col.replace("metrics.", "").replace("_", " ").title())
     ax.set_title("ISI vs Crisis CVaR")
     fig.savefig(out_path, bbox_inches="tight")
     plt.close(fig)

@@ -11,14 +11,23 @@ def compute_er(
     returns_time_series: Sequence[float],
     cvar_alpha: float,
     eps: float,
+    mode: str = "loss",
 ) -> Dict[str, float]:
     """Compute the expected return / tail risk ratio (Eq. 10)."""
+
+    if mode not in {"loss", "returns"}:
+        raise ValueError("mode must be 'loss' or 'returns'")
 
     values = [float(v) for v in returns_time_series]
     if not values:
         raise ValueError("returns_time_series cannot be empty")
     mean_return = sum(values) / len(values)
-    tail_risk = float(cvar(values, alpha=cvar_alpha))
+    tail_risk_returns = float(cvar(values, alpha=cvar_alpha))
+    if mode == "returns":
+        tail_risk = tail_risk_returns
+    else:
+        # Interpret losses as ``-returns`` and capture the upper tail via sign flip.
+        tail_risk = max(0.0, -tail_risk_returns)
     er = mean_return / (tail_risk + eps)
     return {"ER": er}
 

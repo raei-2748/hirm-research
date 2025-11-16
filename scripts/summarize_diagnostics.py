@@ -19,6 +19,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--results-dir", type=str, required=True)
     parser.add_argument("--out", type=str, required=True)
     parser.add_argument("--plot-dir", type=str, default=None)
+    parser.add_argument(
+        "--group-by",
+        type=str,
+        default=None,
+        help="Column to group by when aggregating metrics (default: method if available)",
+    )
     return parser.parse_args()
 
 
@@ -28,7 +34,7 @@ def main() -> None:
     jsonl_files = sorted(results_dir.glob("*.jsonl"))
     df = load_diagnostics_results([str(path) for path in jsonl_files])
     correlations = compute_diagnostics_correlations(df)
-    summary = summarize_diagnostics_by_method(df)
+    summary = summarize_diagnostics_by_method(df, group_by=args.group_by)
     output = {
         "num_records": int(len(df)),
         "correlations": correlations,
