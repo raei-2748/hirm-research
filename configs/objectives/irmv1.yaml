@@ -1,3 +1,3 @@
 name: irmv1
 alpha: 0.95
-penalty_weight: 100.0
+lambda_irm: 1.0

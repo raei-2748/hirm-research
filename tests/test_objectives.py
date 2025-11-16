@@ -4,106 +4,77 @@ from typing import Dict
 
 import pytest
 
+torch = pytest.importorskip("torch")
+from torch import nn
+
+from hirm.objectives import build_objective
 from hirm.utils.config import ConfigNode
 
-torch = pytest.importorskip("torch")
+
+class DummyModel(nn.Module):
+    def __init__(self) -> None:
+        super().__init__()
+        self.head = nn.Linear(1, 1, bias=False)
+        nn.init.constant_(self.head.weight, 1.0)
+
+    def head_parameters(self):  # pragma: no cover - passthrough wrapper
+        return self.head.parameters()
 
 
-def _model_cfg() -> ConfigNode:
-    return ConfigNode(
-        {
-            "name": "invariant_mlp",
-            "representation": {"hidden_dims": [8], "activation": "relu"},
-            "head": {"hidden_dims": [4], "activation": "relu"},
-        }
-    )
+def _objective_cfg(name: str, **overrides) -> ConfigNode:
+    payload = {"name": name}
+    payload.update(overrides)
+    return ConfigNode({"objective": payload})
 
 
-def _make_batch(batch_size: int, feature_dim: int, action_dim: int) -> Dict[str, torch.Tensor]:
-    env_ids = torch.tensor([(idx % 2) for idx in range(batch_size)], dtype=torch.long)
-    features = torch.randn(batch_size, feature_dim)
-    hedge_returns = torch.randn(batch_size, action_dim)
-    base_pnl = torch.randn(batch_size)
+def _env_risks(model: DummyModel) -> Dict[str, torch.Tensor]:
+    weight = next(model.head.parameters()).reshape(-1)[0]
     return {
-        "features": features,
-        "hedge_returns": hedge_returns,
-        "base_pnl": base_pnl,
-        "env_ids": env_ids,
+        "env_a": weight * torch.tensor(1.0),
+        "env_b": weight * torch.tensor(3.0),
     }
 
 
-def _objective_cfg(name: str) -> ConfigNode:
-    payload: Dict[str, float | str] = {"name": name, "alpha": 0.7}
-    if name == "groupdro":
-        payload.update({"step_size": 0.1, "min_weight": 0.01})
-    if name == "vrex":
-        payload.update({"penalty_weight": 2.0})
-    if name == "irmv1":
-        payload.update({"penalty_weight": 10.0})
-    if name == "hirm":
-        payload.update({"lambda_invariance": 0.5})
-    return ConfigNode(payload)
+def test_erm_matches_mean_risk() -> None:
+    model = DummyModel()
+    env_risks = _env_risks(model)
+    cfg = _objective_cfg("erm")
+    objective = build_objective(cfg, device=torch.device("cpu"))
+    loss = objective.compute_loss(env_risks, model, batch={}, extra_state={})
+    assert torch.isclose(loss, torch.tensor(2.0))
 
 
-def _build_components(name: str):  # type: ignore[no-untyped-def]
-    feature_dim = 6
-    action_dim = 2
-    batch = _make_batch(batch_size=8, feature_dim=feature_dim, action_dim=action_dim)
-    env_ids = batch["env_ids"]
-    from hirm.models import build_model
-    from hirm.objectives import build_objective
-    from hirm.objectives.risk import build_risk_function
-
-    cfg_model = _model_cfg()
-    model = build_model(cfg_model, input_dim=feature_dim, action_dim=action_dim)
-    cfg_obj = _objective_cfg(name)
-    objective = build_objective(cfg_obj)
-    risk_fn = build_risk_function(cfg_obj)
-    return model, objective, risk_fn, batch, env_ids
+def test_groupdro_uses_worst_environment() -> None:
+    model = DummyModel()
+    env_risks = _env_risks(model)
+    cfg = _objective_cfg("group_dro", group_dro_smooth=False)
+    objective = build_objective(cfg, device=torch.device("cpu"))
+    loss = objective.compute_loss(env_risks, model, batch={}, extra_state={})
+    assert torch.isclose(loss, torch.tensor(3.0))
 
 
-def test_objectives_produce_finite_gradients() -> None:
-    objective_names = ["erm", "groupdro", "vrex", "irmv1", "hirm"]
-    for name in objective_names:
-        model, objective, risk_fn, batch, env_ids = _build_components(name)
-        model.zero_grad()
-        loss, logs = objective(model, batch, env_ids, risk_fn)
-        assert loss.dim() == 0
-        assert loss.requires_grad
-        assert logs
-        loss.backward()
-        grad_norm = sum(param.grad.norm().item() for param in model.parameters() if param.grad is not None)
-        assert grad_norm > 0.0
+def test_vrex_penalty_matches_variance() -> None:
+    model = DummyModel()
+    env_risks = _env_risks(model)
+    cfg = _objective_cfg("vrex", beta=1.0)
+    objective = build_objective(cfg, device=torch.device("cpu"))
+    loss = objective.compute_loss(env_risks, model, batch={}, extra_state={})
+    assert torch.isclose(loss, torch.tensor(3.0))
+    cfg_erm = _objective_cfg("vrex", beta=0.0)
+    objective_erm = build_objective(cfg_erm, device=torch.device("cpu"))
+    loss_erm = objective_erm.compute_loss(env_risks, model, batch={}, extra_state={})
+    assert torch.isclose(loss_erm, torch.tensor(2.0))
 
 
-def test_irmv1_loss_is_scalar() -> None:
-    model, objective, risk_fn, batch, env_ids = _build_components("irmv1")
-    model.zero_grad()
-    loss, _ = objective(model, batch, env_ids, risk_fn)
-    assert loss.dim() == 0
-    assert loss.requires_grad
+@pytest.mark.parametrize("name", ["irmv1", "hirm"])
+def test_gradient_based_objectives_backprop(name: str) -> None:
+    model = DummyModel()
+    env_risks = _env_risks(model)
+    cfg = _objective_cfg(name)
+    objective = build_objective(cfg, device=torch.device("cpu"))
+    extra_state: Dict[str, torch.Tensor] = {}
+    loss = objective.compute_loss(env_risks, model, batch={}, extra_state=extra_state)
     loss.backward()
-    grad_norm = sum(
-        param.grad.norm().item()
-        for param in model.parameters()
-        if param.grad is not None
-    )
-    assert grad_norm > 0.0
-
-
-def test_hirm_invariance_depends_on_head_gradients() -> None:
-    model, objective, risk_fn, batch, env_ids = _build_components("hirm")
-    for param in model.representation_parameters():
-        param.requires_grad_(False)
-    model.zero_grad()
-    loss, _ = objective(model, batch, env_ids, risk_fn)
-    loss.backward()
-    head_grad_norms = [
-        param.grad.norm().item()
-        for param in model.head_parameters()
-        if param.grad is not None
-    ]
-    assert head_grad_norms, "Head parameters should receive gradients"
-    assert any(norm > 0.0 for norm in head_grad_norms)
-    rep_grads = [param.grad for param in model.representation_parameters()]
-    assert all(grad is None for grad in rep_grads)
+    grads = [param.grad for param in model.head.parameters() if param.grad is not None]
+    assert grads, "Head parameters must receive gradients"
+    assert any(torch.any(g != 0) for g in grads)

@@ -1,35 +1,32 @@
 """Empirical Risk Minimization objective."""
 from __future__ import annotations
 
-from typing import Any, Dict, Tuple
+from typing import Any, Dict
 
 import torch
-from torch import Tensor
 
-from hirm.objectives.common import compute_env_risks
+from hirm.objectives.base import BaseObjective, register_objective
 
 
-class ERMObjective:
-    """ERM baseline minimizing the mean environment risk from the paper."""
+@register_objective("erm")
+class ERMObjective(BaseObjective):
+    """ERM baseline minimizing the mean of per-environment risks."""
 
-    def __init__(self, cfg: Any) -> None:
-        self.cfg = cfg
+    def __init__(self, cfg: Any, device: torch.device) -> None:
+        super().__init__(cfg, device)
 
-    def __call__(
+    def compute_loss(
         self,
-        policy,
-        batch: Dict[str, Tensor],
-        env_ids: Tensor,
-        risk_fn,
-    ) -> Tuple[Tensor, Dict[str, Tensor]]:
-        env_risks, pnl, _, _ = compute_env_risks(policy, batch, env_ids, risk_fn)
+        env_risks: Dict[str, torch.Tensor],
+        model,
+        batch: Dict[str, Any],
+        extra_state: Dict[str, Any] | None = None,
+    ) -> torch.Tensor:
+        del model, batch
         risks = torch.stack(list(env_risks.values()))
-        loss = risks.mean()
-        logs: Dict[str, Tensor] = {"loss": loss.detach(), "risk/mean": loss.detach()}
-        for env, risk in env_risks.items():
-            logs[f"risk/env_{env}"] = risk.detach()
-        logs["pnl/mean"] = pnl.mean().detach()
-        return loss, logs
+        mean_risk = risks.mean()
+        self._log(extra_state, {"train/risk/mean": mean_risk.detach()})
+        return mean_risk
 
 
 __all__ = ["ERMObjective"]

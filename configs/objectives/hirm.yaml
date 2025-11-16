@@ -1,4 +1,5 @@
 name: hirm
 alpha: 0.95
-lambda_invariance: 1.0
+lambda_hirm: 1.0
+eps: 1.0e-08
 grad_normalization: l2

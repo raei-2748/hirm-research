@@ -1,0 +1,15 @@
+defaults:
+  - env: synthetic_volatility
+  - model: mlp_small
+  - objective: groupdro
+  - _self_
+experiment:
+  name: synth_groupdro
+training:
+  episodes_per_env: 2
+  num_steps: 60
+  batch_size: 32
+  dataset_size: 256
+  num_envs: 2
+  lr: 0.001
+  eval_episodes_per_env: 1
