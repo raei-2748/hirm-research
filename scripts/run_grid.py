@@ -32,13 +32,16 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def _set_seed(seed: int) -> None:
+def _set_seed(seed: int, deterministic: bool = False) -> None:
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(seed)
-    torch.use_deterministic_algorithms(False)
+    torch.use_deterministic_algorithms(bool(deterministic))
+    if deterministic and torch.backends.cudnn.is_available():
+        torch.backends.cudnn.deterministic = True
+        torch.backends.cudnn.benchmark = False
 
 
 def _ensure_dir(path: Path) -> None:
@@ -138,6 +141,16 @@ def _env_level_metrics(model, risk_fn, dataset: ExperimentDataset, device: torch
     return metrics
 
 
+def _compute_env_pnls(model, risk_fn, dataset: ExperimentDataset, device: torch.device) -> Dict[str, torch.Tensor]:
+    pnl_series: Dict[str, torch.Tensor] = {}
+    for name, data in dataset.environments.items():
+        batch = {k: v.to(device) for k, v in data.items()}
+        env_ids = batch["env_ids"]
+        _, pnl, _, _ = compute_env_risks(model, batch, env_ids, risk_fn)
+        pnl_series[name] = pnl.detach().cpu()
+    return pnl_series
+
+
 def run_diagnostics(trainer, train_data: ExperimentDataset, test_data: ExperimentDataset, cfg: ConfigNode, device: torch.device):
     diag_cfg = getattr(cfg, "diagnostics", {})
     isi_cfg = getattr(diag_cfg, "isi", {})
@@ -212,15 +225,21 @@ def run_diagnostics(trainer, train_data: ExperimentDataset, test_data: Experimen
     diagnostics["env_metrics"] = env_metrics
 
     crisis_cfg = getattr(diag_cfg, "crisis", {})
-    if crisis_cfg.get("enabled", False) and "crisis" in test_data.environments:
-        crisis_batch = {k: v.to(device) for k, v in test_data.environments["crisis"].items()}
-        _, crisis_pnl, _, _ = compute_env_risks(trainer.model, crisis_batch, crisis_batch["env_ids"], trainer.risk_fn)
-        diagnostics.update(
-            compute_crisis_cvar(
-                pnl_time_series=crisis_pnl.detach().cpu().tolist(),
-                alpha=float(crisis_cfg.get("cvar_alpha", 0.05)),
-            )
-        )
+    if crisis_cfg.get("enabled", False):
+        env_pnls = _compute_env_pnls(trainer.model, trainer.risk_fn, test_data, device)
+        crisis_alpha = float(crisis_cfg.get("cvar_alpha", 0.05))
+        crisis_metrics: Dict[str, float] = {}
+        for name, pnl_tensor in env_pnls.items():
+            if "crisis" in name or name.startswith("20"):
+                result = compute_crisis_cvar(
+                    pnl_time_series=pnl_tensor.tolist(),
+                    alpha=crisis_alpha,
+                )
+                crisis_metrics[name] = float(result.get("crisis_cvar", 0.0))
+        if crisis_metrics:
+            diagnostics["crisis_cvar"] = crisis_metrics
+            if "crisis" in crisis_metrics:
+                diagnostics.setdefault("crisis_cvar_aggregate", crisis_metrics.get("crisis", 0.0))
     return diagnostics
 
 
@@ -310,12 +329,13 @@ def main() -> None:
     seeds = [int(s) for s in (_resolve_list(args.seeds) or list(getattr(cfg, "seeds", [0])))]
     device = torch.device(args.device)
     force = bool(args.force_rerun)
+    deterministic = bool(getattr(getattr(cfg, "training", {}), "deterministic", False))
 
     for dataset in datasets:
         for method in methods:
             for seed in seeds:
                 print(f"[GRID] Starting dataset={dataset} method={method} seed={seed}")
-                _set_seed(seed)
+                _set_seed(seed, deterministic=deterministic)
                 run_single_experiment(dataset, method, seed, cfg, device, force)
 
 
