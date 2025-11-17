@@ -1,2 +1,2 @@
-# Head Invariant Gradient Alignment
+## HIRM: Robust Generalization for Hedging under Crisis Regime Shifts
 This research introduce a developed hedging framework named "HIRM" (Head Invariant Risk Model). This repository reproduces all results for “Robust Generalization for Hedging under Crisis Regime Shifts.” The release ships a deterministic pipeline that stages data, trains the invariant hedging models, generates diagnostics, and exports the camera-ready paper assets.
