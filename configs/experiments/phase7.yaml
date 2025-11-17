@@ -16,6 +16,7 @@ training:
   batch_size: 64
   lr: 0.001
   early_stop_patience: 5
+  deterministic: false
 
 diagnostics:
   enabled: true
@@ -44,3 +45,25 @@ diagnostics:
   tr:
     eps: 1.0e-08
     treat_first_step: drop
+
+real_spy:
+  data:
+    prices_path: data/processed/spy_prices.csv
+    regimes_path: data/processed/spy_regimes.txt
+    horizon: 60
+    crisis_windows:
+      2018_crisis: ["2018-02-01", "2018-03-31"]
+      2020_covid: ["2020-03-01", "2020-06-30"]
+      2022_selloff: ["2022-01-01", "2022-12-31"]
+  splits:
+    train:
+      start: "2016-01-01"
+      end: "2019-12-31"
+      regimes: ["low", "medium"]
+    val:
+      start: "2018-09-01"
+      end: "2018-12-31"
+      regimes: ["high"]
+    test:
+      start: "2018-01-01"
+      end: "2023-12-31"

@@ -44,7 +44,11 @@ def train_step(
     logs["train/risk/mean"] = risks_tensor.mean().detach()
     for env_name, risk in env_risks.items():
         logs[f"train/env/{env_name}/risk"] = risk.detach()
-    logs["train/pnl/mean"] = pnl.mean().detach()
+    pnl_detached = pnl.detach()
+    logs["train/pnl/mean"] = pnl_detached.mean()
+    logs["train/pnl/cvar95"] = torch.quantile(pnl_detached, 0.05)
+    if actions is not None:
+        logs["train/turnover"] = actions.detach().abs().mean()
     logs.update(extra_state.get("objective_logs", {}))
     return loss, logs
 
