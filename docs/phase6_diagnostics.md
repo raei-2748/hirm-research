@@ -16,8 +16,8 @@ and notebooks can import the metrics directly.
 | Crisis | crisis_cvar | CVaR of losses evaluated on a dedicated crisis or stress split.|
 | Efficiency | ER | Expected return divided by CVaR tail risk. Supports `mode="returns"` and `mode="loss"`.|
 | Efficiency | TR | Turnover ratio measuring action smoothness.|
-Each metric is implemented as a pure function documented with references to the
-corresponding equation or section in the paper.
+
+Each metric is implemented as a pure function documented with references to the corresponding equation or section in the paper.
 
 ## Running diagnostics
 
