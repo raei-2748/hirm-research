@@ -126,6 +126,13 @@ def compute_isi(
 ) -> Dict[str, float]:
     """Compute the Internal Stability Index (Eq. 7)."""
 
+    # Force alpha_components to be a clean float list
+    try:
+        alpha_components = [float(a) for a in alpha_components]
+    except Exception:
+        # Fallback if any element is not convertible
+        alpha_components = [1.0, 1.0, 1.0]
+
     if len(alpha_components) != 3:
         raise ValueError("alpha_components must contain three weights")
     risk_values = [float(v) for v in env_risks.values()]

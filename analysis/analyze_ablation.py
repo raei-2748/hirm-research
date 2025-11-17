@@ -42,6 +42,18 @@ def load_ablation_results(root_dir: str) -> pd.DataFrame:
                             continue
                         if isinstance(value, dict):
                             for subkey, subval in value.items():
+                                if isinstance(subval, dict):
+                                    for subsubkey, subsubval in subval.items():
+                                        records.append(
+                                            {
+                                                "dataset": dataset,
+                                                "ablation_name": ablation_name,
+                                                "seed": seed,
+                                                "metric_name": f"{key}/{subkey}/{subsubkey}",
+                                                "value": subsubval,
+                                            }
+                                        )
+                                    continue
                                 records.append(
                                     {
                                         "dataset": dataset,
