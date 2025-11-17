@@ -7,6 +7,7 @@ from typing import Protocol
 import torch
 
 from hirm.utils.config import ConfigNode
+from hirm.experiments.ablations import AblationConfig
 
 
 @dataclass
@@ -16,6 +17,7 @@ class ExperimentRunConfig:
     seed: int
     config: ConfigNode
     device: torch.device
+    ablation: AblationConfig | None = None
 
 
 class Trainer(Protocol):
