@@ -98,16 +98,21 @@ def _run_diagnostics(trainer, train_data: ExperimentDataset, test_data: Experime
     diag_cfg = getattr(cfg, "diagnostics", {})
     isi_cfg = getattr(diag_cfg, "isi", {})
 
-    # --- Normalize alpha_components robustly to a 3-vector ---
+    # --- Normalize alpha_components robustly to a 3-element float list ---
     raw_alpha = isi_cfg.get("alpha_components", [1.0, 1.0, 1.0])
 
-    # Handle scalar numeric input
-    if isinstance(raw_alpha, (int, float)):
-        alpha_components = [float(raw_alpha)] * 3
+    # Handle scalar inputs
+    if isinstance(raw_alpha, (int, float, str)):
+        # Cast scalar-string or scalar to float three times
+        try:
+            val = float(raw_alpha)
+        except Exception:
+            val = 1.0
+        alpha_components = [val, val, val]
     else:
         alpha_components = list(raw_alpha)
 
-    # Handle wrong lengths gracefully
+    # Handle incorrect lengths
     if len(alpha_components) == 1:
         alpha_components = [alpha_components[0]] * 3
     elif len(alpha_components) == 2:
@@ -115,9 +120,12 @@ def _run_diagnostics(trainer, train_data: ExperimentDataset, test_data: Experime
     elif len(alpha_components) > 3:
         alpha_components = alpha_components[:3]
 
-    # Final safety check
+    # Final fallback if length still malformed
     if len(alpha_components) != 3:
         alpha_components = [1.0, 1.0, 1.0]
+
+    # Enforce float types for all values (critical fix)
+    alpha_components = [float(a) for a in alpha_components]
 
     train_batch, train_env_ids = _combine_environments(train_data, device)
     test_batch, test_env_ids = _combine_environments(test_data, device)
