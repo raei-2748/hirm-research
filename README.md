@@ -71,4 +71,18 @@ ISI now combines:
 These components are recorded during ablation runs and surfaced in the analysis
 tables.
 
+## Web UI
+
+Run the Streamlit dashboard to inspect hedging diagnostics interactively:
+
+```bash
+pip install -r requirements.txt
+streamlit run app.py
+```
+
+This launches a local server that lets you upload CSV/JSON price histories (or
+use the bundled SPY sample), pick contract parameters, choose the training
+config/checkpoint, and visualize per-regime metrics, cumulative PnL, and PnL
+distributions directly in the browser.
+
 
