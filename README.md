@@ -121,7 +121,7 @@ You can add any extra packages you need for notebooks or plotting on top of this
 
 ### Synthetic data
 
-Synthetic environments (Heston, Heston plus jumps) are generated on the fly and do not require external files.
+Synthetic environments (Heston and Merton jumps) are generated on the fly and do not require external files.
 
 ### SPY data
 
