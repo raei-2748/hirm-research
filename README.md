@@ -71,4 +71,17 @@ ISI now combines:
 These components are recorded during ablation runs and surfaced in the analysis
 tables.
 
+## Web UI
+
+Run an interactive Streamlit dashboard that wraps the HIRM hedging model:
+
+```bash
+pip install -r requirements.txt
+streamlit run app.py
+```
+
+Then open the local URL printed in the terminal. Upload a CSV or JSON price
+series, pick the option profile parameters in the sidebar, and click **Run
+hedging model** to view PnL metrics, distributions, and environment diagnostics.
+
 
