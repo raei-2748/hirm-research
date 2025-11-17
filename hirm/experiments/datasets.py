@@ -16,6 +16,14 @@ from hirm.envs.regimes import REGIME_NAMES, map_vol_to_regime
 DatasetBuilder = Callable[[Mapping[str, object], str, int], "ExperimentDataset"]
 
 
+__all__ = [
+    "ExperimentDataset",
+    "get_dataset_builder",
+    "list_datasets",
+    "register_dataset",
+]
+
+
 _DATASET_REGISTRY: Dict[str, DatasetBuilder] = {}
 
 

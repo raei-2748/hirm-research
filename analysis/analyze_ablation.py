@@ -103,12 +103,14 @@ def main() -> None:
 
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", type=str, default="results/phase8", help="Path to ablation outputs")
+    parser.add_argument("--root_dir", type=str, help="Alias for --root", dest="root_alias")
     parser.add_argument("--metrics", type=str, default="metrics/cvar95/crisis,metrics/wg,metrics/isi/global,metrics/ig/global,metrics/pnl/mean,metrics/er,metrics/tr")
     parser.add_argument("--output", type=str, default="results/phase8/ablation_summary.csv")
     args = parser.parse_args()
 
     metrics = [m.strip() for m in args.metrics.split(",") if m.strip()]
-    df = load_ablation_results(args.root)
+    root_dir = args.root_alias or args.root
+    df = load_ablation_results(root_dir)
     summary = summarize_metrics(df)
     summary_with_delta = add_deltas(summary)
     out_path = Path(args.output)
