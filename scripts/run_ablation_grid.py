@@ -97,6 +97,28 @@ def _env_level_metrics(model, risk_fn, dataset: ExperimentDataset, device: torch
 def _run_diagnostics(trainer, train_data: ExperimentDataset, test_data: ExperimentDataset, cfg: ConfigNode, device: torch.device):
     diag_cfg = getattr(cfg, "diagnostics", {})
     isi_cfg = getattr(diag_cfg, "isi", {})
+
+    # --- Normalize alpha_components robustly to a 3-vector ---
+    raw_alpha = isi_cfg.get("alpha_components", [1.0, 1.0, 1.0])
+
+    # Handle scalar numeric input
+    if isinstance(raw_alpha, (int, float)):
+        alpha_components = [float(raw_alpha)] * 3
+    else:
+        alpha_components = list(raw_alpha)
+
+    # Handle wrong lengths gracefully
+    if len(alpha_components) == 1:
+        alpha_components = [alpha_components[0]] * 3
+    elif len(alpha_components) == 2:
+        alpha_components = [alpha_components[0], alpha_components[1], alpha_components[1]]
+    elif len(alpha_components) > 3:
+        alpha_components = alpha_components[:3]
+
+    # Final safety check
+    if len(alpha_components) != 3:
+        alpha_components = [1.0, 1.0, 1.0]
+
     train_batch, train_env_ids = _combine_environments(train_data, device)
     test_batch, test_env_ids = _combine_environments(test_data, device)
 
@@ -150,7 +172,7 @@ def _run_diagnostics(trainer, train_data: ExperimentDataset, test_data: Experime
             "layer_activations": layer_activations,
             "tau_R": float(isi_cfg.get("tau_R", 0.05)),
             "tau_C": float(isi_cfg.get("tau_C", 1.0)),
-            "alpha_components": list(isi_cfg.get("alpha_components", [1.0, 1.0, 1.0])),
+            "alpha_components": alpha_components,
             "eps": float(isi_cfg.get("eps", 1e-8)),
             "cov_regularizer": float(isi_cfg.get("cov_regularizer", 1e-4)),
             "grad_norm_eps": float(isi_cfg.get("grad_norm_eps", 1e-12)),
