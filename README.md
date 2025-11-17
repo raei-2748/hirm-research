@@ -2,12 +2,6 @@
 
 This research introduce a developed hedging framework named "HIRM" (Head Invariant Risk Model) that synthesise gradient alignment in producing hedge actions. This repository reproduces all results for “Robust Generalization for Hedging under Crisis Regime Shifts.” The release ships a deterministic pipeline that stages data, trains the invariant hedging models, generates diagnostics, and exports the camera-ready paper assets.
 
-# Phase 8 Ablations
-
-Phase 8 packages the full ablation suite for HIRM and the main baselines. The study
-compares how invariance, state factorization, objective design, and environment
-labelling choices affect robustness, invariance, and efficiency.
-
 ## Ablation axes
 
 Each registered ablation toggles one or more of the following axes:
