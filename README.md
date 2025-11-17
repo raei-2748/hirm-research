@@ -87,7 +87,7 @@ pytest.ini
 
 ### 1. Set up a Python environment
 
-Recommended Python version: **3.10 or newer**.
+Recommended Python version: **3.10**. Versions 3.11–3.12 work if you keep NumPy below 2.0, but 3.10 is the most stable across local and Colab.
 
 ```bash
 git clone <your-repo-url> hirm-research
@@ -98,22 +98,16 @@ source .venv/bin/activate      # on macOS or Linux
 # .venv\Scripts\activate       # on Windows PowerShell
 ```
 
-### 2. Install dependencies
+### 2. Install dependencies and the package
 
-The core code uses only a small set of external libraries:
-
-* `torch`
-* `numpy`
-* `pandas`
-* `pytest` (for tests)
-
-Install them with pip:
+Use the pinned requirements to avoid the NumPy/PyTorch incompatibility seen on Python 3.12:
 
 ```bash
-pip install torch numpy pandas pytest
+pip install -r requirements.txt
+pip install -e .
 ```
 
-You can add any extra packages you need for notebooks or plotting on top of this.
+This installs NumPy 1.26.x, Torch 2.4.1 (CPU build by default), pandas, matplotlib, and the testing stack. The same dependency set is declared in `pyproject.toml`, so `pip install -e .` will work on its own if you prefer.
 
 ---
 
@@ -196,6 +190,48 @@ python analysis/analyze_ablation.py --root_dir results/phase8
 ```
 
 This aggregates metrics across runs and writes summary CSV files with mean, standard deviation and deltas vs `hirm_full`.
+
+---
+
+## Run Phase 8 in Colab
+
+The Colab workflow mirrors local usage but pins GPU-friendly wheels and NumPy 1.26 to avoid the `np.number`/`np.object_` import error seen with NumPy 2.x.
+
+1. In **Runtime → Change runtime type**, choose **Python 3.10** and **GPU**.
+2. Clone the repo and check out the Phase 8 branch:
+
+   ```bash
+   !git clone https://github.com/raei-2748/hirm-research.git
+   %cd hirm-research
+   !git checkout phase8-ablation
+   ```
+
+3. Install dependencies and the package (CUDA 12.1 Torch wheels via the extra index):
+
+   ```bash
+   !pip install -r requirements-colab.txt
+   !pip install -e .
+   ```
+
+4. Run the smoke test:
+
+   ```bash
+   !pytest tests/test_phase8_smoke.py -vv
+   ```
+
+5. Run a reduced ablation on GPU:
+
+   ```bash
+   !python scripts/run_ablation_grid.py \
+       --config configs/experiments/phase8.yaml \
+       --datasets synthetic_heston \
+       --ablation_names hirm_full,erm_baseline \
+       --seeds 0 \
+       --device cuda \
+       --reduced
+   ```
+
+The `requirements-colab.txt` file locks NumPy to `<2.0` and installs the CUDA 12.1 Torch wheels to ensure compatibility in fresh Colab runtimes.
 
 ---
 
