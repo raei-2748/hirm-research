@@ -8,6 +8,7 @@ import torch
 
 from hirm.utils.config import ConfigNode
 from hirm.experiments.ablations import AblationConfig
+from .datasets import ExperimentDataset
 
 
 @dataclass
@@ -36,4 +37,4 @@ class Trainer(Protocol):
         ...
 
 
-__all__ = ["ExperimentRunConfig", "Trainer"]
+__all__ = ["ExperimentDataset", "ExperimentRunConfig", "Trainer"]

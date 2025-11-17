@@ -13,6 +13,7 @@ import numpy as np
 import torch
 
 from hirm.diagnostics import compute_all_diagnostics, compute_crisis_cvar
+from hirm.diagnostics.invariance_helpers import collect_invariance_signals
 from hirm.experiments.ablations import apply_ablation_to_config, get_ablation_config, list_ablations
 from hirm.experiments.datasets import ExperimentDataset, get_dataset_builder
 from hirm.experiments.methods import get_method_builder
@@ -128,11 +129,20 @@ def _run_diagnostics(trainer, train_data: ExperimentDataset, test_data: Experime
         },
     }
 
+    head_gradients, layer_activations = collect_invariance_signals(
+        trainer.model,
+        train_data.environments,
+        getattr(trainer.model, "invariance_mode", "head_only"),
+        device,
+        trainer.risk_fn,
+        max_samples_per_env=int(getattr(isi_cfg, "max_samples_per_env", 256)),
+    )
+
     invariance_inputs = {
         "isi_inputs": {
             "env_risks": env_risks,
-            "head_gradients": {},
-            "layer_activations": {},
+            "head_gradients": head_gradients,
+            "layer_activations": layer_activations,
             "tau_R": float(isi_cfg.get("tau_R", 0.05)),
             "tau_C": float(isi_cfg.get("tau_C", 1.0)),
             "alpha_components": list(isi_cfg.get("alpha_components", [1.0, 1.0, 1.0])),
