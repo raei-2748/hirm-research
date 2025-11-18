@@ -1,4 +1,4 @@
-"""Grid runner for Phase 7 benchmark experiments."""
+"""Phase 8 ablation grid runner."""
 from __future__ import annotations
 
 import argparse
@@ -8,7 +8,7 @@ import random
 import sys
 import time
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Mapping
+from typing import Any, Iterable, Mapping
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
@@ -18,22 +18,26 @@ import numpy as np
 import torch
 
 from hirm.diagnostics import compute_all_diagnostics, compute_crisis_cvar
-from hirm.objectives.common import concat_state, compute_env_risks
-from hirm.utils.config import ConfigNode, load_config, to_plain_dict
+from hirm.diagnostics.invariance_helpers import collect_invariance_signals
+from hirm.experiments.ablations import apply_ablation_to_config, get_ablation_config, list_ablations
 from hirm.experiments.datasets import ExperimentDataset, get_dataset_builder
 from hirm.experiments.methods import get_method_builder
 from hirm.experiments.registry import ExperimentRunConfig
+from hirm.objectives.common import concat_state, compute_env_risks
+from hirm.objectives.risk import build_risk_function
+from hirm.utils.config import ConfigNode, load_config, to_plain_dict
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--methods", type=str, default=None)
+    parser.add_argument("--ablation_names", type=str, default=None)
     parser.add_argument("--datasets", type=str, default=None)
     parser.add_argument("--seeds", type=str, default=None)
     parser.add_argument("--config", type=str, required=True)
     parser.add_argument("--num_workers", type=int, default=0)
     parser.add_argument("--force_rerun", type=int, default=0)
     parser.add_argument("--device", type=str, default="cpu")
+    parser.add_argument("--reduced", action="store_true", help="Run a reduced grid for smoke testing")
     return parser.parse_args()
 
 
@@ -59,66 +63,13 @@ def _write_jsonl(path: Path, records: Iterable[Mapping[str, Any]]) -> None:
             handle.write(json.dumps(record) + "\n")
 
 
-def _collect_layer_activations(model, batch: Mapping[str, torch.Tensor], env_ids: torch.Tensor, layer_names: Iterable[str]):
-    hooks = []
-    captured: Dict[str, torch.Tensor] = {}
-    modules = dict(model.named_modules())
-    for name in layer_names:
-        module = modules.get(name)
-        if module is None:
-            continue
-
-        def _hook(_, __, output, layer=name):  # type: ignore[override]
-            captured[layer] = output.detach().cpu()
-
-        hooks.append(module.register_forward_hook(_hook))
-    with torch.no_grad():
-        features = concat_state(batch)
-        model(features, env_ids=env_ids)
-    for handle in hooks:
-        handle.remove()
-    env_tensor = env_ids.detach().cpu()
-    unique_envs = torch.unique(env_tensor)
-    layer_acts: Dict[str, Dict[str, torch.Tensor]] = {}
-    for layer, tensor in captured.items():
-        env_map: Dict[str, torch.Tensor] = {}
-        for env in unique_envs.tolist():
-            mask = env_tensor == env
-            if not mask.any():
-                continue
-            env_map[f"env_{int(env)}"] = tensor[mask].detach().cpu().tolist()
-        layer_acts[layer] = env_map
-    return layer_acts
-
-
-def _collect_head_gradients(model, env_risks: Mapping[int, torch.Tensor]) -> Dict[str, list[float]]:
-    head_params = list(model.head_parameters()) if hasattr(model, "head_parameters") else []
-    if not head_params:
-        return {}
-    gradients: Dict[str, list[float]] = {}
-    env_items = list(env_risks.items())
-    for idx, (env, risk) in enumerate(env_items):
-        model.zero_grad(set_to_none=True)
-        retain_graph = idx < len(env_items) - 1
-        risk.backward(retain_graph=retain_graph)
-        flat: list[torch.Tensor] = []
-        for param in head_params:
-            if param.grad is None:
-                continue
-            flat.append(param.grad.detach().reshape(-1))
-        if flat:
-            gradients[f"env_{int(env)}"] = torch.cat(flat).detach().cpu().tolist()
-    model.zero_grad(set_to_none=True)
-    return gradients
-
-
-def _combine_environments(dataset: ExperimentDataset, device: torch.device) -> tuple[Dict[str, torch.Tensor], torch.Tensor]:
+def _combine_environments(dataset: ExperimentDataset, device: torch.device):
     batches = []
     env_ids = []
-    for name, data in dataset.environments.items():
+    for _, data in dataset.environments.items():
         batches.append({k: v.to(device) for k, v in data.items()})
         env_ids.append(data["env_ids"].to(device))
-    merged: Dict[str, torch.Tensor] = {}
+    merged: dict[str, torch.Tensor] = {}
     for key in batches[0].keys():
         merged[key] = torch.cat([b[key] for b in batches], dim=0)
     merged["env_ids"] = torch.cat(env_ids, dim=0)
@@ -126,53 +77,65 @@ def _combine_environments(dataset: ExperimentDataset, device: torch.device) -> t
 
 
 def _env_level_metrics(model, risk_fn, dataset: ExperimentDataset, device: torch.device):
-    metrics: Dict[str, Dict[str, float]] = {}
+    metrics: dict[str, dict[str, float]] = {}
     for name, data in dataset.environments.items():
         batch = {k: v.to(device) for k, v in data.items()}
         env_ids = batch["env_ids"]
-        env_risks, pnl, actions, _ = compute_env_risks(model, batch, env_ids, risk_fn)
+        env_risks, pnl, actions, env_tensor = compute_env_risks(model, batch, env_ids, risk_fn)
         risk_value = float(list(env_risks.values())[0].detach().cpu()) if env_risks else 0.0
         pnl_arr = pnl.detach().cpu()
-        mean_pnl = float(pnl_arr.mean())
-        cvar95 = float(torch.quantile(pnl_arr, 0.05)) if pnl_arr.numel() > 0 else 0.0
-        max_drawdown = float(torch.min(torch.cumsum(pnl_arr, dim=0)).item()) if pnl_arr.numel() > 0 else 0.0
         metrics[name] = {
-            "cvar95": cvar95,
-            "mean_pnl": mean_pnl,
-            "max_drawdown": max_drawdown,
             "risk": risk_value,
+            "pnl_mean": float(pnl_arr.mean()) if pnl_arr.numel() else 0.0,
+            "pnl_cvar95": float(torch.quantile(pnl_arr, 0.05)) if pnl_arr.numel() else 0.0,
             "turnover": float(actions.abs().mean().detach().cpu()) if actions is not None else 0.0,
+            "env_id": int(env_tensor[0].item()) if env_tensor.numel() else 0,
         }
     return metrics
 
 
-def _compute_env_pnls(model, risk_fn, dataset: ExperimentDataset, device: torch.device) -> Dict[str, torch.Tensor]:
-    pnl_series: Dict[str, torch.Tensor] = {}
-    for name, data in dataset.environments.items():
-        batch = {k: v.to(device) for k, v in data.items()}
-        env_ids = batch["env_ids"]
-        _, pnl, _, _ = compute_env_risks(model, batch, env_ids, risk_fn)
-        pnl_series[name] = pnl.detach().cpu()
-    return pnl_series
-
-
-def run_diagnostics(trainer, train_data: ExperimentDataset, test_data: ExperimentDataset, cfg: ConfigNode, device: torch.device):
+def _run_diagnostics(trainer, train_data: ExperimentDataset, test_data: ExperimentDataset, cfg: ConfigNode, device: torch.device):
     diag_cfg = getattr(cfg, "diagnostics", {})
     isi_cfg = getattr(diag_cfg, "isi", {})
+
+    # --- Normalize alpha_components robustly to a 3-element float list ---
+    raw_alpha = isi_cfg.get("alpha_components", [1.0, 1.0, 1.0])
+
+    # Handle scalar inputs
+    if isinstance(raw_alpha, (int, float, str)):
+        # Cast scalar-string or scalar to float three times
+        try:
+            val = float(raw_alpha)
+        except Exception:
+            val = 1.0
+        alpha_components = [val, val, val]
+    else:
+        alpha_components = list(raw_alpha)
+
+    # Handle incorrect lengths
+    if len(alpha_components) == 1:
+        alpha_components = [alpha_components[0]] * 3
+    elif len(alpha_components) == 2:
+        alpha_components = [alpha_components[0], alpha_components[1], alpha_components[1]]
+    elif len(alpha_components) > 3:
+        alpha_components = alpha_components[:3]
+
+    # Final fallback if length still malformed
+    if len(alpha_components) != 3:
+        alpha_components = [1.0, 1.0, 1.0]
+
+    # Enforce float types for all values (critical fix)
+    alpha_components = [float(a) for a in alpha_components]
+
     train_batch, train_env_ids = _combine_environments(train_data, device)
     test_batch, test_env_ids = _combine_environments(test_data, device)
 
     env_risks_tensor, train_pnl, _, _ = compute_env_risks(trainer.model, train_batch, train_env_ids, trainer.risk_fn)
     env_risks = {f"env_{env}": float(risk.detach().cpu()) for env, risk in env_risks_tensor.items()}
-    head_gradients = _collect_head_gradients(trainer.model, env_risks_tensor)
-    layer_activations = _collect_layer_activations(
-        trainer.model,
-        train_batch,
-        train_env_ids,
-        isi_cfg.get("probe_layers", ["representation", "head"]),
-    )
 
-    test_env_risks_tensor, eval_pnl, eval_actions, _ = compute_env_risks(trainer.model, test_batch, test_env_ids, trainer.risk_fn)
+    test_env_risks_tensor, eval_pnl, eval_actions, eval_env_tensor = compute_env_risks(
+        trainer.model, test_batch, test_env_ids, trainer.risk_fn
+    )
     test_env_risks = {f"env_{env}": float(risk.detach().cpu()) for env, risk in test_env_risks_tensor.items()}
 
     robustness_inputs = {
@@ -201,6 +164,15 @@ def run_diagnostics(trainer, train_data: ExperimentDataset, test_data: Experimen
         },
     }
 
+    head_gradients, layer_activations = collect_invariance_signals(
+        trainer.model,
+        train_data.environments,
+        getattr(trainer.model, "invariance_mode", "head_only"),
+        device,
+        trainer.risk_fn,
+        max_samples_per_env=int(getattr(isi_cfg, "max_samples_per_env", 256)),
+    )
+
     invariance_inputs = {
         "isi_inputs": {
             "env_risks": env_risks,
@@ -208,7 +180,7 @@ def run_diagnostics(trainer, train_data: ExperimentDataset, test_data: Experimen
             "layer_activations": layer_activations,
             "tau_R": float(isi_cfg.get("tau_R", 0.05)),
             "tau_C": float(isi_cfg.get("tau_C", 1.0)),
-            "alpha_components": list(isi_cfg.get("alpha_components", [1.0, 1.0, 1.0])),
+            "alpha_components": alpha_components,
             "eps": float(isi_cfg.get("eps", 1e-8)),
             "cov_regularizer": float(isi_cfg.get("cov_regularizer", 1e-4)),
             "grad_norm_eps": float(isi_cfg.get("grad_norm_eps", 1e-12)),
@@ -226,45 +198,46 @@ def run_diagnostics(trainer, train_data: ExperimentDataset, test_data: Experimen
         robustness_inputs=robustness_inputs,
         efficiency_inputs=efficiency_inputs,
     )
+
+    diagnostics.update(
+        {
+            "metrics/isi/global": float(diagnostics.get("isi", 0.0)),
+            "metrics/ig/global": float(diagnostics.get("ig", 0.0)),
+            "metrics/wg": float(diagnostics.get("wg", 0.0)),
+            "metrics/vr": float(diagnostics.get("vr", 0.0)),
+            "metrics/er": float(diagnostics.get("er", 0.0)),
+            "metrics/tr": float(diagnostics.get("tr", 0.0)),
+            "metrics/pnl/mean": float(eval_pnl.mean().detach().cpu()),
+            "metrics/pnl/cvar95": float(torch.quantile(eval_pnl.detach().cpu(), 0.05)),
+        }
+    )
+
     env_metrics = _env_level_metrics(trainer.model, trainer.risk_fn, test_data, device)
     diagnostics["env_metrics"] = env_metrics
 
-    # Prefixed metrics for downstream logging
-    prefixed: Dict[str, float] = {}
-    if "isi" in diagnostics:
-        prefixed["metrics/isi/global"] = float(diagnostics.get("isi", 0.0))
-    if "ig" in diagnostics:
-        prefixed["metrics/ig/global"] = float(diagnostics.get("ig", 0.0))
-    if "wg" in diagnostics:
-        prefixed["metrics/wg"] = float(diagnostics.get("wg", 0.0))
-    if "vr" in diagnostics:
-        prefixed["metrics/vr"] = float(diagnostics.get("vr", 0.0))
-    if "er" in diagnostics:
-        prefixed["metrics/er"] = float(diagnostics.get("er", 0.0))
-    if "tr" in diagnostics:
-        prefixed["metrics/tr"] = float(diagnostics.get("tr", 0.0))
-    diagnostics.update(prefixed)
-
     crisis_cfg = getattr(diag_cfg, "crisis", {})
     if crisis_cfg.get("enabled", False):
-        env_pnls = _compute_env_pnls(trainer.model, trainer.risk_fn, test_data, device)
+        risk_fn = build_risk_function(cfg.objective)
+        env_pnls = {}
+        for name, data in test_data.environments.items():
+            batch = {k: v.to(device) for k, v in data.items()}
+            env_ids = batch["env_ids"]
+            _, pnl, _, _ = compute_env_risks(trainer.model, batch, env_ids, risk_fn)
+            env_pnls[name] = pnl.detach().cpu()
         crisis_alpha = float(crisis_cfg.get("cvar_alpha", 0.05))
-        crisis_metrics: Dict[str, float] = {}
+        crisis_metrics: dict[str, float] = {}
         for name, pnl_tensor in env_pnls.items():
             if "crisis" in name or name.startswith("20"):
-                result = compute_crisis_cvar(
-                    pnl_time_series=pnl_tensor.tolist(),
-                    alpha=crisis_alpha,
-                )
+                result = compute_crisis_cvar(pnl_time_series=pnl_tensor.tolist(), alpha=crisis_alpha)
                 crisis_metrics[name] = float(result.get("crisis_cvar", 0.0))
         if crisis_metrics:
             diagnostics["crisis_cvar"] = crisis_metrics
             if "crisis" in crisis_metrics:
-                diagnostics.setdefault("crisis_cvar_aggregate", crisis_metrics.get("crisis", 0.0))
+                diagnostics["metrics/cvar95/crisis"] = crisis_metrics.get("crisis", 0.0)
     return diagnostics
 
 
-def _resolve_list(value: Any) -> List[str]:
+def _resolve_list(value: Any) -> list[str]:
     if value is None:
         return []
     if isinstance(value, str):
@@ -272,8 +245,11 @@ def _resolve_list(value: Any) -> List[str]:
     return list(value)
 
 
-def run_single_experiment(dataset_name: str, method_name: str, seed: int, base_cfg: ConfigNode, device: torch.device, force: bool):
-    out_dir = Path("results") / dataset_name / method_name / f"seed_{seed}"
+def run_single_ablation(dataset_name: str, ablation_name: str, seed: int, base_cfg: ConfigNode, device: torch.device, force: bool):
+    ablation = get_ablation_config(ablation_name)
+    if ablation is None:
+        raise ValueError(f"Unknown ablation {ablation_name}")
+    out_dir = Path("results") / "phase8" / dataset_name / ablation.name / f"seed_{seed}"
     _ensure_dir(out_dir)
     checkpoint_path = out_dir / "checkpoint.pt"
     diagnostics_path = out_dir / "diagnostics.jsonl"
@@ -282,18 +258,10 @@ def run_single_experiment(dataset_name: str, method_name: str, seed: int, base_c
     metadata_path = out_dir / "metadata.json"
 
     if not force and checkpoint_path.exists() and diagnostics_path.exists():
-        print(f"[GRID] Skipping completed run dataset={dataset_name} method={method_name} seed={seed}")
+        print(f"[ABLATION] Skipping completed run dataset={dataset_name} ablation={ablation_name} seed={seed}")
         return
 
-    cfg = ConfigNode(to_plain_dict(base_cfg))
-    if "objective" not in cfg:
-        cfg["objective"] = ConfigNode({"name": method_name})
-    else:
-        cfg.objective.name = method_name
-    if "model" not in cfg:
-        cfg["model"] = ConfigNode({"name": "invariant_policy"})
-    if "env" not in cfg:
-        cfg["env"] = ConfigNode({"feature_dim": 6, "action_dim": 2})
+    cfg = apply_ablation_to_config(base_cfg, ablation)
     cfg.seed = seed
     _ensure_dir(out_dir)
     config_path.write_text(json.dumps(to_plain_dict(cfg), indent=2), encoding="utf-8")
@@ -303,29 +271,38 @@ def run_single_experiment(dataset_name: str, method_name: str, seed: int, base_c
     dataset_val = dataset_builder(cfg, split="val", seed=seed + 13)
     dataset_test = dataset_builder(cfg, split="test", seed=seed + 31)
 
+    # --- Validation Fallback ---
+    # If the validation split is empty (e.g., real_spy has no 'high' regime episodes
+    # in the specified date interval), fall back to using the training split.
+    if not getattr(dataset_val, "environments", None):
+        print(f"[WARN] Validation split empty for dataset={dataset_name}, using train split as validation.")
+        dataset_val = dataset_train
+
     run_cfg = ExperimentRunConfig(
         dataset=dataset_name,
-        method=method_name,
+        method=ablation.method,
         seed=seed,
         config=cfg,
         device=device,
+        ablation=ablation,
     )
-    trainer_builder = get_method_builder(method_name)
+    trainer_builder = get_method_builder(ablation.method)
     trainer = trainer_builder(run_cfg)
     trainer.set_datasets(train=dataset_train, val=dataset_val)
 
     start = time.time()
     logs = trainer.train()
     trainer.save(str(checkpoint_path))
-    diagnostics = run_diagnostics(trainer, dataset_train, dataset_test, cfg, device)
+    diagnostics = _run_diagnostics(trainer, dataset_train, dataset_test, cfg, device)
     elapsed = time.time() - start
 
     _write_jsonl(train_log_path, logs)
     _write_jsonl(diagnostics_path, [
         {
-            "method": method_name,
+            "method": ablation.method,
             "dataset": dataset_name,
             "seed": seed,
+            "ablation_name": ablation.name,
             **diagnostics,
         }
     ])
@@ -333,31 +310,32 @@ def run_single_experiment(dataset_name: str, method_name: str, seed: int, base_c
         "git_commit": os.popen("git rev-parse HEAD").read().strip(),
         "timestamp": time.time(),
         "dataset": dataset_name,
-        "method": method_name,
+        "method": ablation.method,
         "seed": seed,
+        "ablation_name": ablation.name,
         "training_time_seconds": elapsed,
         "library_versions": {"torch": torch.__version__},
     }
     metadata_path.write_text(json.dumps(metadata, indent=2), encoding="utf-8")
-    print(f"[GRID] Finished dataset={dataset_name} method={method_name} seed={seed}")
+    print(f"[ABLATION] Finished dataset={dataset_name} ablation={ablation_name} seed={seed}")
 
 
 def main() -> None:
     args = parse_args()
     cfg = load_config(args.config)
-    methods = _resolve_list(args.methods) or list(getattr(cfg, "methods", []))
-    datasets = _resolve_list(args.datasets) or list(getattr(cfg, "datasets", []))
-    seeds = [int(s) for s in (_resolve_list(args.seeds) or list(getattr(cfg, "seeds", [0])))]
+    ablations = _resolve_list(args.ablation_names) or list_ablations()
+    datasets = _resolve_list(args.datasets) or ["synthetic_heston", "real_spy"]
+    seeds = [int(s) for s in (_resolve_list(args.seeds) or list(range(10 if not args.reduced else 2)))]
     device = torch.device(args.device)
     force = bool(args.force_rerun)
     deterministic = bool(getattr(getattr(cfg, "training", {}), "deterministic", False))
 
     for dataset in datasets:
-        for method in methods:
+        for ablation_name in ablations:
             for seed in seeds:
-                print(f"[GRID] Starting dataset={dataset} method={method} seed={seed}")
+                print(f"[ABLATION] Starting dataset={dataset} ablation={ablation_name} seed={seed}")
                 _set_seed(seed, deterministic=deterministic)
-                run_single_experiment(dataset, method, seed, cfg, device, force)
+                run_single_ablation(dataset, ablation_name, seed, cfg, device, force)
 
 
 if __name__ == "__main__":

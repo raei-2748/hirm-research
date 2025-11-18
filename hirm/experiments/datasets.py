@@ -16,6 +16,14 @@ from hirm.envs.regimes import REGIME_NAMES, map_vol_to_regime
 DatasetBuilder = Callable[[Mapping[str, object], str, int], "ExperimentDataset"]
 
 
+__all__ = [
+    "ExperimentDataset",
+    "get_dataset_builder",
+    "list_datasets",
+    "register_dataset",
+]
+
+
 _DATASET_REGISTRY: Dict[str, DatasetBuilder] = {}
 
 
@@ -54,6 +62,69 @@ class ExperimentDataset:
                 for name, batch in self.environments.items()
             }
         )
+
+
+def _apply_env_label_scheme(
+    envs: Dict[str, Dict[str, torch.Tensor]],
+    scheme: str,
+    seed: int,
+) -> Dict[str, Dict[str, torch.Tensor]]:
+    if scheme in {None, "", "vol_bands"}:
+        return envs
+    if scheme == "random":
+        generator = torch.Generator().manual_seed(seed)
+        env_items = list(envs.items())
+        total = sum(batch["env_ids"].shape[0] for _, batch in env_items)
+        if total == 0:
+            return envs
+        unique_envs = sorted({int(torch.unique(batch["env_ids"])[0]) for _, batch in env_items})
+        num_envs = max(len(unique_envs), 1)
+        labels = torch.arange(num_envs, dtype=torch.long).repeat((total // num_envs) + 1)
+        labels = labels[:total]
+        perm = torch.randperm(total, generator=generator)
+        labels = labels[perm]
+        cursor = 0
+        new_envs: Dict[str, Dict[str, torch.Tensor]] = {}
+        for name, batch in env_items:
+            count = batch["env_ids"].shape[0]
+            new_labels = labels[cursor : cursor + count]
+            cursor += count
+            updated = {k: v.clone() for k, v in batch.items()}
+            updated["env_ids"] = new_labels.to(batch["env_ids"].device)
+            new_envs[name] = updated
+        return new_envs
+    if scheme == "coarse_bands":
+        grouped: Dict[str, list[Dict[str, torch.Tensor]]] = {"coarse_stable": [], "coarse_stress": [], "other": []}
+
+        def _group_key(name: str) -> str:
+            lower = name.lower()
+            if "low" in lower or "medium" in lower:
+                return "coarse_stable"
+            if "high" in lower or "crisis" in lower:
+                return "coarse_stress"
+            return "other"
+
+        for name, batch in envs.items():
+            grouped[_group_key(name)].append(batch)
+
+        new_envs: Dict[str, Dict[str, torch.Tensor]] = {}
+        env_id_counter = 0
+        for key in ("coarse_stable", "coarse_stress", "other"):
+            batches = grouped.get(key, [])
+            if not batches:
+                continue
+            merged: Dict[str, torch.Tensor] = {}
+            for batch in batches:
+                for k, v in batch.items():
+                    if k not in merged:
+                        merged[k] = v.clone()
+                    else:
+                        merged[k] = torch.cat([merged[k], v], dim=0)
+            merged["env_ids"] = torch.full_like(merged["env_ids"], env_id_counter)
+            new_envs[key] = merged
+            env_id_counter += 1
+        return new_envs or envs
+    raise ValueError(f"Unknown env_label_scheme '{scheme}'")
 
 
 def _build_env_batch(
@@ -224,6 +295,8 @@ def build_synthetic_heston_dataset(cfg: Mapping[str, object], split: str, seed: 
             env_id=idx,
             generator=generator,
         )
+    scheme = getattr(getattr(cfg, "env", None), "label_scheme", "vol_bands")
+    envs = _apply_env_label_scheme(envs, scheme=scheme, seed=seed)
     return ExperimentDataset(environments=envs)
 
 
@@ -313,6 +386,8 @@ def build_real_spy_dataset(cfg: Mapping[str, object], split: str, seed: int) -> 
                 env_id_counter += 1
         if not envs:
             _build_band("test", allowed, start, end)
+    scheme = getattr(getattr(cfg, "env", None), "label_scheme", "vol_bands")
+    envs = _apply_env_label_scheme(envs, scheme=scheme, seed=seed)
 
     return ExperimentDataset(environments=envs)
 

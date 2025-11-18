@@ -1,0 +1,17 @@
+# Core numerical stack
+numpy==1.26.4
+pandas>=1.5
+matplotlib>=3.7
+
+# PyTorch CPU builds
+torch==2.4.1
+torchvision==0.19.1
+torchaudio==2.4.1
+
+# Utilities
+pyyaml>=6.0
+tqdm>=4.66
+
+# Testing
+pytest>=8.0
+pytest-xdist>=3.5

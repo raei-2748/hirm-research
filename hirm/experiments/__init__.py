@@ -1,8 +1,8 @@
 """Experiment registry and helpers for Phase 7."""
 
-from .datasets import get_dataset_builder, list_datasets
+from .datasets import ExperimentDataset, get_dataset_builder, list_datasets
 from .methods import get_method_builder, list_methods
-from .registry import ExperimentDataset, ExperimentRunConfig
+from .registry import ExperimentRunConfig
 
 __all__ = [
     "ExperimentDataset",

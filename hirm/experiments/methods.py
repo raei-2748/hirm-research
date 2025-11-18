@@ -14,7 +14,8 @@ from hirm.objectives.risk import build_risk_function
 from hirm.training import train_step
 from hirm.utils.config import ConfigNode
 
-from .registry import ExperimentDataset, ExperimentRunConfig, Trainer
+from .registry import ExperimentRunConfig, Trainer
+from .datasets import ExperimentDataset
 
 MethodBuilder = Callable[[ExperimentRunConfig], Trainer]
 

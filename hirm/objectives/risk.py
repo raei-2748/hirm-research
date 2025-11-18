@@ -25,9 +25,13 @@ def build_risk_function(cfg_objective) -> RiskFn:  # type: ignore[no-untyped-def
     if alpha is None:
         alpha = getattr(cfg_objective, "alpha", 0.95)
     name = (name or "cvar").lower()
-    if name not in {"cvar", "conditional_value_at_risk"}:
-        raise ValueError(f"Unsupported risk function '{name}'")
-    return make_cvar(alpha=float(alpha))
+    if name in {"cvar", "conditional_value_at_risk"}:
+        return make_cvar(alpha=float(alpha))
+    if name in {"mean", "expected"}:
+        return make_mean()
+    if name in {"variance", "variance_like", "mean_variance"}:
+        return make_variance_like()
+    raise ValueError(f"Unsupported risk function '{name}'")
 
 
 def make_cvar(alpha: float = 0.95) -> RiskFn:
@@ -54,6 +58,25 @@ def make_cvar(alpha: float = 0.95) -> RiskFn:
         return tail.mean()
 
     return _cvar
+
+
+def make_mean() -> RiskFn:
+    def _mean(pnl: Tensor) -> Tensor:
+        if pnl.numel() == 0:
+            raise ValueError("pnl tensor must be non-empty")
+        return -pnl.reshape(-1).mean()
+
+    return _mean
+
+
+def make_variance_like() -> RiskFn:
+    def _variance(pnl: Tensor) -> Tensor:
+        if pnl.numel() == 0:
+            raise ValueError("pnl tensor must be non-empty")
+        centered = pnl.reshape(-1) - pnl.reshape(-1).mean()
+        return centered.pow(2).mean()
+
+    return _variance
 
 
 __all__ = ["build_risk_function", "make_cvar", "RiskFn"]

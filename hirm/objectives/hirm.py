@@ -10,12 +10,18 @@ from hirm.objectives.base import BaseObjective, register_objective
 from hirm.objectives.common import flatten_head_gradients
 
 
-def _get_head_parameters(model):
-    if hasattr(model, "head_parameters"):
-        return list(model.head_parameters())
-    if hasattr(model, "head"):
-        return list(model.head.parameters())
-    raise ValueError("Model must expose head parameters for HIRM")
+def _get_parameters(model, mode: str):
+    if mode == "head_only":
+        if hasattr(model, "head_parameters"):
+            return list(model.head_parameters())
+        if hasattr(model, "head"):
+            return list(model.head.parameters())
+        raise ValueError("Model must expose head parameters for HIRM")
+    if mode in {"full", "full_irm"}:
+        return list(model.parameters())
+    if mode in {"none", "env_specific_heads"}:
+        return []
+    raise ValueError(f"Unsupported invariance_mode '{mode}'")
 
 
 @register_objective("hirm")
@@ -26,6 +32,7 @@ class HIRMObjective(BaseObjective):
         super().__init__(cfg, device)
         self.lambda_hirm = float(getattr(self.obj_cfg, "lambda_hirm", getattr(self.obj_cfg, "lambda_invariance", 1.0)))
         self.eps = float(getattr(self.obj_cfg, "eps", 1e-8))
+        self.invariance_mode = str(getattr(self.obj_cfg, "invariance_mode", "head_only"))
 
     def compute_loss(
         self,
@@ -37,9 +44,18 @@ class HIRMObjective(BaseObjective):
         del batch
         risks = torch.stack(list(env_risks.values()))
         mean_risk = risks.mean()
-        head_params = _get_head_parameters(model)
-        if not head_params:
-            raise ValueError("HIRM requires a non-empty head module")
+        head_params = _get_parameters(model, self.invariance_mode)
+        if not head_params or self.invariance_mode == "none":
+            self._log(
+                extra_state,
+                {
+                    "train/risk/mean": mean_risk.detach(),
+                    "train/objective/hirm_penalty": torch.tensor(0.0, device=mean_risk.device),
+                    "train/objective/hirm_lambda": torch.tensor(self.lambda_hirm),
+                    "train/hirm/alignment": torch.tensor(0.0, device=mean_risk.device),
+                },
+            )
+            return mean_risk
         env_names = list(env_risks.keys())
         gradients: Dict[str, torch.Tensor] = {}
         for env_name in env_names:

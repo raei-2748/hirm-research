@@ -17,6 +17,12 @@ def _get_head_parameters(model) -> Iterable[torch.nn.Parameter]:
     raise ValueError("Model must expose head parameters for IRMv1")
 
 
+def _get_parameter_scope(model, mode: str) -> Iterable[torch.nn.Parameter]:
+    if mode in {"full", "full_irm"}:
+        return list(model.parameters())
+    return _get_head_parameters(model)
+
+
 @register_objective("irmv1")
 class IRMv1Objective(BaseObjective):
     """Classic IRMv1 using gradients of each env risk w.r.t. the head."""
@@ -24,6 +30,7 @@ class IRMv1Objective(BaseObjective):
     def __init__(self, cfg: Any, device: torch.device) -> None:
         super().__init__(cfg, device)
         self.lambda_irm = float(getattr(self.obj_cfg, "lambda_irm", getattr(self.obj_cfg, "penalty_weight", 1.0)))
+        self.invariance_mode = str(getattr(self.obj_cfg, "invariance_mode", "head_only"))
 
     def compute_loss(
         self,
@@ -35,9 +42,9 @@ class IRMv1Objective(BaseObjective):
         del batch
         risks = torch.stack(list(env_risks.values()))
         mean_risk = risks.mean()
-        head_params = _get_head_parameters(model)
+        head_params = list(_get_parameter_scope(model, self.invariance_mode))
         if not head_params:
-            raise ValueError("IRMv1 requires at least one head parameter")
+            raise ValueError("IRMv1 requires at least one parameter for the invariance penalty")
         penalty = torch.zeros(1, device=mean_risk.device)
         for risk in env_risks.values():
             grads = torch.autograd.grad(
