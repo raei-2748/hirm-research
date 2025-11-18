@@ -271,6 +271,13 @@ def run_single_ablation(dataset_name: str, ablation_name: str, seed: int, base_c
     dataset_val = dataset_builder(cfg, split="val", seed=seed + 13)
     dataset_test = dataset_builder(cfg, split="test", seed=seed + 31)
 
+    # --- Validation Fallback ---
+    # If the validation split is empty (e.g., real_spy has no 'high' regime episodes
+    # in the specified date interval), fall back to using the training split.
+    if not getattr(dataset_val, "environments", None):
+        print(f"[WARN] Validation split empty for dataset={dataset_name}, using train split as validation.")
+        dataset_val = dataset_train
+
     run_cfg = ExperimentRunConfig(
         dataset=dataset_name,
         method=ablation.method,
