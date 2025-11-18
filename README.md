@@ -56,6 +56,11 @@ hirm/
 analysis/
   analyze_ablation.py    # Phase 8 ablation result aggregation
 
+phase9 additions
+  scripts/run_experiment_grid.py  # Paper grid entrypoint
+  analysis/phase9_analysis.py     # Aggregation and plotting helper
+  notebooks/hirm_phase9_colab.ipynb
+
 configs/
   base.yaml              # Shared configuration
   envs/                  # Environment specific configs
@@ -108,6 +113,38 @@ pip install -e .
 ```
 
 This installs NumPy 1.26.x, Torch 2.4.1 (CPU build by default), pandas, matplotlib, and the testing stack. The same dependency set is declared in `pyproject.toml`, so `pip install -e .` will work on its own if you prefer.
+
+---
+
+## Phase 9 quickstart
+
+Run the paper-aligned grid entrypoint on a small slice:
+
+```bash
+python scripts/run_experiment_grid.py \
+  --config configs/experiments/phase9.yaml \
+  --datasets synthetic_heston,real_spy \
+  --methods erm_baseline,hirm_full \
+  --seeds 0 --device cpu --reduced
+```
+
+After runs complete, summarize metrics and plots:
+
+```bash
+python analysis/phase9_analysis.py --root_dir results/phase9 --output_dir analysis_outputs/phase9
+```
+
+### Smoke test
+
+To verify the installation end-to-end, run the phase 9 smoke in pytest (CPU friendly):
+
+```bash
+pytest tests/test_phase9_smoke.py -q
+```
+
+### Reproducing paper results
+
+Use the full seeds/methods listed in `configs/experiments/phase9.yaml` without `--reduced` and point the analysis script to `results/phase9`. The repository layout keeps runs under `results/phase9/{dataset}/{method}/seed_{seed}` for reproducibility.
 
 ---
 
