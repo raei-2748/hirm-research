@@ -158,6 +158,22 @@ You should see a short training log and no errors.
 
 ---
 
+## Web UI
+
+Run the lightweight hedging dashboard directly from the repository root:
+
+```bash
+pip install -r requirements.txt
+streamlit run app.py
+```
+
+Then open the local Streamlit URL printed in the terminal. The interface lets
+you upload a CSV/JSON price history, configure maturity / strike inputs, and
+visualize PnL distributions along with the diagnostics implemented in
+`webui_utils.py`.
+
+---
+
 ### 2. Run the Phase 8 smoke test (recommended first run)
 
 This is a small ablation grid on synthetic data only, designed to be light enough to run on a laptop CPU.
