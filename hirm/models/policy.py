@@ -73,7 +73,10 @@ class InvariantPolicy(nn.Module):
         r_cfg = _resolve_block(cfg_model, "r")
         repr_hidden = repr_cfg.get("hidden_dims") or cfg_model.get("hidden_dims")
         phi_hidden = phi_cfg.get("hidden_dims") or repr_hidden
-        r_hidden = r_cfg.get("hidden_dims") or repr_hidden
+        if self.state_factorization == "phi_only":
+            r_hidden = []
+        else:
+            r_hidden = r_cfg.get("hidden_dims") or repr_hidden
         if not repr_hidden and self.state_factorization == "no_split":
             raise ValueError("Representation hidden_dims must be specified")
 

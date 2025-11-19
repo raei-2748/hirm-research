@@ -26,7 +26,14 @@ def _get_parameters(model, mode: str):
 
 @register_objective("hirm")
 class HIRMObjective(BaseObjective):
-    """Head gradient invariance objective described in the paper."""
+    """Head gradient invariance objective described in the paper.
+
+    The HGCA penalty aligns the *direction* (not magnitude) of head
+    gradients across environments, following the formulation in the
+    Phase 9 paper. Gradients are flattened, L2-normalized, and compared
+    with cosine similarity so that the dispersion term depends only on
+    gradient directions.
+    """
 
     def __init__(self, cfg: Any, device: torch.device) -> None:
         super().__init__(cfg, device)
@@ -41,6 +48,15 @@ class HIRMObjective(BaseObjective):
         batch: Dict[str, Any],
         extra_state: Dict[str, Any] | None = None,
     ) -> torch.Tensor:
+        """Return mean risk plus the HGCA dispersion penalty.
+
+        Args:
+            env_risks: Mapping from environment name to per-environment risk
+                (each tensor must require gradients for the head parameters).
+            model: Policy network exposing ``head_parameters`` or ``head``.
+            batch: Unused here (kept for API symmetry with other objectives).
+            extra_state: Optional dict where logging side-effects are written.
+        """
         del batch
         risks = torch.stack(list(env_risks.values()))
         mean_risk = risks.mean()
