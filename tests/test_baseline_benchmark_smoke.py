@@ -1,7 +1,5 @@
 import os
 import subprocess
-import os
-import subprocess
 from pathlib import Path
 
 import pytest
@@ -18,21 +16,21 @@ def _subprocess_env():
 
 def _write_minimal_config(tmp_path: Path) -> Path:
     yaml_text = """
-datasets: ["synthetic_heston"]
-methods: ["erm", "hirm"]
-seeds: [0]
-env:
-  feature_dim: 6
-  action_dim: 2
+defaults:
+  - env: synthetic_heston
+  - model: mlp_small
+  - objective: erm
+  - _self_
+experiment:
+  name: baseline_smoke
 training:
-  max_epochs: 3
+  max_epochs: 2
   batch_size: 8
-  early_stop_patience: 2
+  early_stop_patience: 1
 diagnostics:
   enabled: true
   crisis:
     enabled: false
-    cvar_alpha: 0.05
 """
     path = tmp_path / "config_smoke.yaml"
     path.write_text(yaml_text)
@@ -46,9 +44,11 @@ def test_run_grid_and_results(tmp_path):
     subprocess.check_call(
         [
             "python",
-            "scripts/run_baseline_benchmark.py",
+            "scripts/run_grid.py",
             "--config",
             str(cfg_path),
+            "--mode",
+            "benchmark",
             "--datasets",
             "synthetic_heston",
             "--methods",
@@ -66,27 +66,34 @@ def test_run_grid_and_results(tmp_path):
     for method in ("erm", "hirm"):
         base = results_root / "synthetic_heston" / method / "seed_0"
         assert base.exists()
-        for fname in ("train_logs.jsonl", "checkpoint.pt", "diagnostics.jsonl", "config.yaml", "metadata.json"):
+        for fname in ("train_logs.jsonl", "checkpoint.pt", "diagnostics.jsonl", "config.json", "metadata.json"):
             assert (base / fname).exists(), fname
 
 
 @pytest.mark.smoke
 def test_integrity_checker(tmp_path):
     cfg_path = _write_minimal_config(tmp_path)
-    subprocess.check_call([
-        "python",
-        "scripts/run_baseline_benchmark.py",
-        "--config",
-        str(cfg_path),
-        "--datasets",
-        "synthetic_heston",
-        "--methods",
-        "erm",
-        "--seeds",
-        "0",
-        "--device",
-        "cpu",
-    ], env=_subprocess_env())
+    subprocess.check_call(
+        [
+            "python",
+            "scripts/run_grid.py",
+            "--config",
+            str(cfg_path),
+            "--mode",
+            "benchmark",
+            "--datasets",
+            "synthetic_heston",
+            "--methods",
+            "erm",
+            "--seeds",
+            "0",
+            "--device",
+            "cpu",
+            "--results-dir",
+            "results",
+        ],
+        env=_subprocess_env(),
+    )
     subprocess.check_call(
         ["python", "scripts/check_baseline_integrity.py", "--config", str(cfg_path)],
         env=_subprocess_env(),
@@ -96,20 +103,27 @@ def test_integrity_checker(tmp_path):
 @pytest.mark.smoke
 def test_summarizer(tmp_path):
     cfg_path = _write_minimal_config(tmp_path)
-    subprocess.check_call([
-        "python",
-        "scripts/run_baseline_benchmark.py",
-        "--config",
-        str(cfg_path),
-        "--datasets",
-        "synthetic_heston",
-        "--methods",
-        "erm",
-        "--seeds",
-        "0",
-        "--device",
-        "cpu",
-    ], env=_subprocess_env())
+    subprocess.check_call(
+        [
+            "python",
+            "scripts/run_grid.py",
+            "--config",
+            str(cfg_path),
+            "--mode",
+            "benchmark",
+            "--datasets",
+            "synthetic_heston",
+            "--methods",
+            "erm",
+            "--seeds",
+            "0",
+            "--device",
+            "cpu",
+            "--results-dir",
+            "results",
+        ],
+        env=_subprocess_env(),
+    )
     subprocess.check_call(
         ["python", "scripts/summarize_baseline_results.py", "--config", str(cfg_path)],
         env=_subprocess_env(),

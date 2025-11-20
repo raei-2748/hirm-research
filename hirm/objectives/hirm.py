@@ -1,4 +1,8 @@
-"""Head Invariant Risk Minimization objective."""
+"""Head Invariant Risk Minimization (HIRM) objective.
+
+Implements the Head Gradient Cosine Alignment (HGCA) penalty described in
+Section 4.2 of "Robust Generalization for Hedging under Crisis Regime Shifts".
+"""
 from __future__ import annotations
 
 import itertools
@@ -26,17 +30,18 @@ def _get_parameters(model, mode: str):
 
 @register_objective("hirm")
 class HIRMObjective(BaseObjective):
-    """Head gradient invariance objective described in the paper.
+    """Decision-head invariance objective grounded in Sections 4.2 and 4.4.
 
-    The HGCA penalty aligns the *direction* (not magnitude) of head
-    gradients across environments, following the formulation in the
-    Phase 9 paper. Gradients are flattened, L2-normalized, and compared
-    with cosine similarity so that the dispersion term depends only on
-    gradient directions.
+    Loss = Mean(Risk_e) + λ * Dispersion(Grads_e)
+
+    Dispersion corresponds to the cosine-based gradient disagreement term
+    (Eq. 11), enforcing alignment of normalized head gradients so invariance
+    focuses on directional mechanism rather than scale.
     """
 
     def __init__(self, cfg: Any, device: torch.device) -> None:
         super().__init__(cfg, device)
+        # Section 4.4: λ controls strength of the head alignment constraint.
         self.lambda_hirm = float(getattr(self.obj_cfg, "lambda_hirm", getattr(self.obj_cfg, "lambda_invariance", 1.0)))
         self.eps = float(getattr(self.obj_cfg, "eps", 1e-8))
         self.invariance_mode = str(getattr(self.obj_cfg, "invariance_mode", "head_only"))
@@ -48,15 +53,13 @@ class HIRMObjective(BaseObjective):
         batch: Dict[str, Any],
         extra_state: Dict[str, Any] | None = None,
     ) -> torch.Tensor:
-        """Return mean risk plus the HGCA dispersion penalty.
+        """Return the HIRM objective aligned with the paper's derivation.
 
-        Args:
-            env_risks: Mapping from environment name to per-environment risk
-                (each tensor must require gradients for the head parameters).
-            model: Policy network exposing ``head_parameters`` or ``head``.
-            batch: Unused here (kept for API symmetry with other objectives).
-            extra_state: Optional dict where logging side-effects are written.
+        Section 4.2 defines the HGCA penalty on per-environment gradients, and
+        Section 4.4 normalizes those gradients before computing cosine
+        dispersion so the constraint targets the hedge rule's direction.
         """
+
         del batch
         risks = torch.stack(list(env_risks.values()))
         mean_risk = risks.mean()
@@ -72,22 +75,23 @@ class HIRMObjective(BaseObjective):
                 },
             )
             return mean_risk
-        env_names = list(env_risks.keys())
+
         gradients: Dict[str, torch.Tensor] = {}
-        for env_name in env_names:
-            grad = torch.autograd.grad(
-                env_risks[env_name],
+        for env_name, risk in env_risks.items():
+            grads = torch.autograd.grad(
+                risk,
                 head_params,
                 create_graph=True,
                 retain_graph=True,
                 allow_unused=True,
             )
-            flat = flatten_head_gradients(grad)
-            norm = flat.norm() + self.eps
-            gradients[env_name] = flat / norm
+            flat = flatten_head_gradients(grads)
+            gradients[env_name] = flat / (flat.norm() + self.eps)
+
         dispersion = self._gradient_dispersion(gradients)
         alignment = 1.0 - dispersion
         total = mean_risk + self.lambda_hirm * dispersion
+
         alignment_detached = alignment.detach()
         self._log(
             extra_state,
