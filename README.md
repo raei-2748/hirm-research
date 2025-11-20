@@ -1,6 +1,8 @@
 ## HIRM: Hedging with Invariant Risk Minimization
 Note: Maybe renamed to Praesidium, Causal Distilled Structural Invariance for future developments.
 
+<p align="left">
+
   <img src="https://img.shields.io/badge/version-v1.0.0-blue.svg">
   <img src="https://img.shields.io/badge/license-MIT-green.svg">
   <img src="https://img.shields.io/badge/Python-3.10%2B-blue">
@@ -150,11 +152,11 @@ Each run stores:
 
 A reproduction script for the full suite is provided in `scripts/`.
 
-# Canonical run commands
+## 9. Canonical run commands
 
 All commands assume you are in the repository root with Python 3.10+ in an active virtual environment and dependencies installed via `pip install -r requirements.txt && pip install -e .`.
 
-## Smoke tests
+### Smoke tests
 - Tiny synthetic smoke (CPU friendly)
   ```bash
   python scripts/run_smoke_test.py --config configs/experiments/smoke_test.yaml --device cpu --results-dir results/smoke_demo
@@ -164,7 +166,7 @@ All commands assume you are in the repository root with Python 3.10+ in an activ
   pytest tests/test_full_suite_smoke.py -q
   ```
 
-## Baseline benchmark
+### Baseline benchmark
 - Reduced baseline grid
   ```bash
   python scripts/run_baseline_benchmark.py \
@@ -176,7 +178,7 @@ All commands assume you are in the repository root with Python 3.10+ in an activ
     --results-dir results/baseline_reduced
   ```
 
-## Ablation study
+### Ablation study
 - Reduced ablation grid
   ```bash
   python scripts/run_ablation_study.py \
@@ -189,7 +191,7 @@ All commands assume you are in the repository root with Python 3.10+ in an activ
     --results-dir results/ablation_reduced
   ```
 
-## Full experiment suite
+### Full experiment suite
 - Reduced publication grid
   ```bash
   python scripts/run_full_experiment_suite.py \
@@ -209,7 +211,7 @@ All commands assume you are in the repository root with Python 3.10+ in an activ
     --results-dir results/full_experiment_suite
   ```
 
-## Analysis utilities
+### Analysis utilities
 - Baseline summary
   ```bash
   python scripts/summarize_baseline_results.py --root results/baseline_reduced --out analysis_outputs/baseline
@@ -223,7 +225,7 @@ All commands assume you are in the repository root with Python 3.10+ in an activ
   python analysis/phase9_analysis.py --root_dir results/full_suite_reduced --output_dir analysis_outputs/full_suite_reduced
   ```
 
-## Colab notebooks
+### Colab notebooks
 - `notebooks/hirm_tiny_demo.ipynb` – one-click tiny synthetic run and plot.
 - `notebooks/hirm_phase9_reduced.ipynb` – reduced full-suite grid with diagnostics and plots (rename pending in history notes).
 
