@@ -1,4 +1,4 @@
-"""Summarize Phase 7 diagnostics into compact CSV/JSON tables."""
+"""Summarize baseline benchmark diagnostics into compact CSV/JSON tables."""
 from __future__ import annotations
 
 import argparse
@@ -90,6 +90,15 @@ def summarize_dataset(dataset: str, methods: Iterable[str], seeds: Iterable[int]
     return summary_records, summary_dict
 
 
+def _resolve_list(value: Any) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, str):
+        cleaned = value.strip("[]\"'")
+        return [v.strip().strip("\"'") for v in cleaned.split(",") if v.strip()]
+    return list(value)
+
+
 def write_summary(dataset: str, records: List[Dict], root: Path):
     summary_dir = root / "summary"
     summary_dir.mkdir(parents=True, exist_ok=True)
@@ -109,9 +118,9 @@ def write_summary(dataset: str, records: List[Dict], root: Path):
 def main() -> None:
     args = parse_args()
     cfg = load_config(args.config)
-    methods = getattr(cfg, "methods", [])
-    datasets = getattr(cfg, "datasets", [])
-    seeds = getattr(cfg, "seeds", [0])
+    methods = _resolve_list(getattr(cfg, "methods", []))
+    datasets = _resolve_list(getattr(cfg, "datasets", []))
+    seeds = [int(s) for s in _resolve_list(getattr(cfg, "seeds", [0]))]
     root = Path(args.results_root)
 
     for dataset in datasets:

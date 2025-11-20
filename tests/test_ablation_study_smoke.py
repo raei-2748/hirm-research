@@ -1,16 +1,17 @@
 import subprocess
+import subprocess
 import sys
 from pathlib import Path
 
 
-def test_phase8_ablation_and_analysis(tmp_path):
-    results_root = Path("results/phase8")
+def test_ablation_study_and_analysis(tmp_path):
+    results_root = tmp_path / "ablation_study"
 
     cmd = [
         sys.executable,
-        "scripts/run_ablation_grid.py",
+        "scripts/run_ablation_study.py",
         "--config",
-        "configs/experiments/phase8.yaml",
+        "configs/experiments/ablation_study.yaml",
         "--datasets",
         "synthetic_heston",
         "--ablation_names",
@@ -20,6 +21,8 @@ def test_phase8_ablation_and_analysis(tmp_path):
         "--device",
         "cpu",
         "--reduced",
+        "--results-dir",
+        str(results_root),
     ]
     subprocess.check_call(cmd)
 

@@ -4,7 +4,7 @@ defaults:
   - objective: hirm
   - _self_
 experiment:
-  name: tiny_test
+  name: smoke_test
 training:
   episodes_per_env: 2
   num_steps: 60

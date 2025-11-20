@@ -28,9 +28,15 @@ def parse_args() -> argparse.Namespace:
 
 
 def _resolve_items(cfg) -> Tuple[Iterable[str], Iterable[str], Iterable[int]]:
-    methods = getattr(cfg, "methods", [])
-    datasets = getattr(cfg, "datasets", [])
-    seeds = getattr(cfg, "seeds", [0])
+    def _resolve_list(value):
+        if isinstance(value, str):
+            cleaned = value.strip("[]\"'")
+            return [v.strip().strip("\"'") for v in cleaned.split(",") if v.strip()]
+        return list(value)
+
+    methods = _resolve_list(getattr(cfg, "methods", []))
+    datasets = _resolve_list(getattr(cfg, "datasets", []))
+    seeds = [int(s) for s in _resolve_list(getattr(cfg, "seeds", [0]))]
     return methods, datasets, seeds
 
 
