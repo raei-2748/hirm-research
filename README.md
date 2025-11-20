@@ -1,5 +1,7 @@
-## HIRM: Hedging with Invariant Risk Minimization
-Note: Maybe renamed to Praesidium, Causal Distilled Structural Invariance for future developments.
+
+# HIRM: Hedging with Invariant Risk Minimization
+
+*Note: Future versions may adopt the project name **Praesidium**, based on Causal Distilled Structural Invariance.*
 
 <p align="left">
 
@@ -11,39 +13,37 @@ Note: Maybe renamed to Praesidium, Causal Distilled Structural Invariance for fu
   <img src="https://img.shields.io/badge/Colab-demo-yellow">
   <img src="https://img.shields.io/badge/data-SPY%20%2B%20Synthetic-orange">
 
+</p>
 
-This repository provides the reference implementation of **HIRM (Hedging with Invariant Risk Minimization)**, a decision-level robustness method for dynamic hedging under market regime shifts. It includes synthetic and real SPY experiments, baselines, diagnostics, and reproducible training pipelines.
+This repository contains the reference implementation of **HIRM (Hedging with Invariant Risk Minimization)**, a decision-level robustness method for dynamic hedging under market regime shifts. It supports synthetic environments and real SPY experiments, includes strong baselines, and provides diagnostics and reproducibility pipelines.
 
----
+Most hedge models fail when volatility, liquidity, or correlations shift abruptly. HIRM improves robustness by stabilizing the **hedge decision rule** itself across environments, rather than enforcing invariance on representations or losses. The architecture separates:
 
-## 1. What is HIRM?
-
-Most hedge models break when volatility, liquidity, or correlations shift. HIRM improves robustness by stabilizing the **hedge decision rule** across environments rather than trying to learn fully invariant features.
-
-The model separates:
-- a **representation** that adapts to market conditions  
+- a **representation module** that adapts to market structure  
 - a **hedge head** whose gradients are regularized across regimes  
 
-This leads to more stable actions in stress periods while preserving flexibility in normal markets.
+This design aims to produce more stable and interpretable hedges in stress periods while preserving flexibility in normal conditions.
 
 ---
 
-## 2. Installation
+## Installation
 
 ```bash
 python -m venv .venv
-source .venv/bin/activate        # or .venv\Scripts\activate on Windows
+source .venv/bin/activate         # or .venv\Scripts\activate on Windows
 pip install -r requirements.txt
 pip install -e .
 ````
 
-For Colab, see `notebooks/`.
+For Colab, see the notebooks in `notebooks/`.
 
 ---
 
-## 3. Quickstart
+## Quickstart
 
-### Tiny smoke test
+### 1. Smoke test
+
+Minimal end-to-end check:
 
 ```bash
 python scripts/run_smoke_test.py \
@@ -51,7 +51,9 @@ python scripts/run_smoke_test.py \
   --device cpu
 ```
 
-### Small synthetic demo (HIRM vs ERM)
+### 2. Mini synthetic demo
+
+Single-seed synthetic Heston run comparing HIRM vs ERM:
 
 ```bash
 python scripts/run_full_experiment_suite.py \
@@ -60,9 +62,16 @@ python scripts/run_full_experiment_suite.py \
   --seeds 0
 ```
 
-### Reduced SPY demo
+### 3. Mini SPY demo
 
-Requires `data/processed/spy_prices.csv` and `spy_regimes.txt`.
+Requires:
+
+```text
+data/processed/spy_prices.csv
+data/processed/spy_regimes.txt
+```
+
+Then run:
 
 ```bash
 python scripts/run_full_experiment_suite.py \
@@ -71,30 +80,63 @@ python scripts/run_full_experiment_suite.py \
   --seeds 0
 ```
 
-Full commands and grids are documented in `RUNS.md`.
+Additional commands are listed in **RUNS.md**.
 
 ---
 
-## 4. Experiments
+## Experiments
 
-Experiment families are organized semantically:
+Experiment families are organized by purpose:
 
-* **baseline_benchmark** – ERM, GroupDRO, V-REx, IRM, HIRM comparisons
-* **ablation_study** – removing or altering components of HIRM
-* **full_experiment_suite** – synthetic and SPY experiments used in the paper
-* **smoke_test** – minimal sanity check
+* **baseline_benchmark**
+  ERM, GroupDRO, V-REx, IRM, HIRM
 
-Each has a config in `configs/experiments/` and a runner in `scripts/`.
+* **ablation_study**
+  Effects of removing or modifying HIRM components
+
+* **full_experiment_suite**
+  Synthetic + SPY experiments (publication-style grid)
+
+* **smoke_test**
+  Minimal system validation
+
+Each experiment has:
+
+* a config file under `configs/experiments/`
+* a corresponding runner in `scripts/`
 
 ---
 
-## 5. Diagnostics
+## Diagnostics
 
-HIRM includes quantitative diagnostics for:
+HIRM provides diagnostics along three axes: **Invariance**, **Robustness**, and **Efficiency**.
 
-* **Invariance:** ISI, IG
-* **Robustness:** worst-group CVaR, crisis CVaR, volatility ratios
-* **Efficiency:** return-risk efficiency, turnover
+**Invariance**
+
+* **ISI (Invariant Signal Index)**
+  Composite measure of internal invariance (loss, gradient, representation stability)
+
+* **IG (Invariance Gap)**
+  Dispersion of risk across test environments
+
+**Robustness**
+
+* **Worst-group CVaR**
+  Tail risk in the worst regime
+
+* **Crisis CVaR**
+  Tail risk restricted to crisis windows
+
+* **Volatility ratios**
+  Temporal stability of risk over time
+
+**Efficiency**
+
+* **Return-risk efficiency**
+  Expected return per unit tail risk
+
+* **Turnover**
+  Trading intensity / implementation cost proxy
 
 Run diagnostics on any checkpoint:
 
@@ -106,126 +148,181 @@ python scripts/run_diagnostics.py \
 
 ---
 
-## 6. Data
+## Data
 
 ### Synthetic
 
-Generated at runtime; no external files needed.
+* Generated at runtime (no external files required)
+* Heston-style dynamics with optional jump and liquidity stress
+* Volatility-band regimes: Low / Medium / High / Crisis
 
 ### Real SPY
 
-Requires preprocessed files:
+Requires:
 
-```
+```text
 data/processed/spy_prices.csv
 data/processed/spy_regimes.txt
 ```
 
-Format details in `docs/data_preparation.md`.
+* SPY daily closes and realized volatility
+* Regimes defined by 20-day realized volatility bands
+* Training: low/medium-volatility periods (2017–2019)
+* Testing: Feb–Mar 2018, Mar 2020, 2022 sell-off
+
+See `docs/data_preparation.md` for detailed instructions.
 
 ---
 
-## 7. Repository Structure
+## Repository Structure
 
-```
-hirm/             # core library
-configs/          # experiment configs
-scripts/          # runners and diagnostics
-analysis/         # result aggregation + plots
-notebooks/        # Colab demos
-docs/             # documentation and design notes
-results/          # generated at runtime (gitignored)
+```text
+hirm/             # Core library: models, environments, objectives, training, diagnostics
+configs/          # Experiment, model, objective, and dataset configs
+scripts/          # Runners for training grids, diagnostics, and utilities
+analysis/         # Aggregation and plotting utilities
+notebooks/        # Colab-friendly demos
+docs/             # Documentation and design notes
+results/          # Created at runtime (gitignored)
 ```
 
 ---
 
-## 8. Reproducibility
+## Reproducibility
 
 Each run stores:
 
-* seed
-* config copy
-* arguments
-* timestamps
-* device info
+* random seed
+* full config snapshot
+* command-line arguments
+* timestamps and device information
 * git commit hash
 
-A reproduction script for the full suite is provided in `scripts/`.
+Reproduction scripts live under `scripts/`. A typical pattern is:
 
-## 9. Canonical run commands
+```bash
+python scripts/run_full_experiment_suite.py \
+  --config <config_path> \
+  --results-dir <results_dir> \
+  [other flags...]
+```
 
-All commands assume you are in the repository root with Python 3.10+ in an active virtual environment and dependencies installed via `pip install -r requirements.txt && pip install -e .`.
+---
+
+## Canonical Run Commands
+
+All commands assume you are in the repo root with dependencies installed.
 
 ### Smoke tests
-- Tiny synthetic smoke (CPU friendly)
-  ```bash
-  python scripts/run_smoke_test.py --config configs/experiments/smoke_test.yaml --device cpu --results-dir results/smoke_demo
-  ```
-- Pytest smoke
-  ```bash
-  pytest tests/test_full_suite_smoke.py -q
-  ```
 
-### Baseline benchmark
-- Reduced baseline grid
-  ```bash
-  python scripts/run_baseline_benchmark.py \
-    --config configs/experiments/baseline_benchmark.yaml \
-    --datasets synthetic_heston \
-    --methods erm,hirm \
-    --seeds 0 \
-    --device cpu \
-    --results-dir results/baseline_reduced
-  ```
+```bash
+python scripts/run_smoke_test.py \
+  --config configs/experiments/smoke_test.yaml \
+  --device cpu \
+  --results-dir results/smoke_demo
 
-### Ablation study
-- Reduced ablation grid
-  ```bash
-  python scripts/run_ablation_study.py \
-    --config configs/experiments/ablation_study.yaml \
-    --datasets synthetic_heston \
-    --ablation_names hirm_full,erm_baseline \
-    --seeds 0 \
-    --device cpu \
-    --reduced \
-    --results-dir results/ablation_reduced
-  ```
+pytest tests/test_full_suite_smoke.py -q
+```
 
-### Full experiment suite
-- Reduced publication grid
-  ```bash
-  python scripts/run_full_experiment_suite.py \
-    --config configs/experiments/full_experiment_suite.yaml \
-    --datasets synthetic_heston,real_spy \
-    --methods erm_baseline,hirm_full \
-    --seeds 0 \
-    --device cpu \
-    --reduced \
-    --results-dir results/full_suite_reduced
-  ```
-- Full grid (slow)
-  ```bash
-  python scripts/run_full_experiment_suite.py \
-    --config configs/experiments/full_experiment_suite.yaml \
-    --device cuda:0 \
-    --results-dir results/full_experiment_suite
-  ```
+### Baseline benchmark (reduced)
+
+```bash
+python scripts/run_baseline_benchmark.py \
+  --config configs/experiments/baseline_benchmark.yaml \
+  --datasets synthetic_heston \
+  --methods erm,hirm \
+  --seeds 0 \
+  --device cpu \
+  --results-dir results/baseline_reduced
+```
+
+### Mini ablation run
+
+```bash
+python scripts/run_ablation_study.py \
+  --config configs/experiments/ablation_study.yaml \
+  --datasets synthetic_heston \
+  --ablation_names hirm_full,erm_baseline \
+  --seeds 0 \
+  --device cpu \
+  --reduced \
+  --results-dir results/ablation_reduced
+```
+
+### Full experiment suite (reduced)
+
+```bash
+python scripts/run_full_experiment_suite.py \
+  --config configs/experiments/full_experiment_suite.yaml \
+  --datasets synthetic_heston,real_spy \
+  --methods erm_baseline,hirm_full \
+  --seeds 0 \
+  --device cpu \
+  --reduced \
+  --results-dir results/full_suite_reduced
+```
+
+### Full publication grid (slow)
+
+```bash
+python scripts/run_full_experiment_suite.py \
+  --config configs/experiments/full_experiment_suite.yaml \
+  --device cuda:0 \
+  --results-dir results/full_experiment_suite
+```
 
 ### Analysis utilities
-- Baseline summary
-  ```bash
-  python scripts/summarize_baseline_results.py --root results/baseline_reduced --out analysis_outputs/baseline
-  ```
-- Ablation analysis
-  ```bash
-  python analysis/analyze_ablation.py --root_dir results/ablation_reduced --output_dir analysis_outputs/ablation
-  ```
-- Full suite aggregation and plots
-  ```bash
-  python analysis/phase9_analysis.py --root_dir results/full_suite_reduced --output_dir analysis_outputs/full_suite_reduced
-  ```
+
+```bash
+python scripts/summarize_baseline_results.py \
+  --root results/baseline_reduced \
+  --out analysis_outputs/baseline
+
+python analysis/analyze_ablation.py \
+  --root_dir results/ablation_reduced \
+  --output_dir analysis_outputs/ablation
+
+python analysis/phase9_analysis.py \
+  --root_dir results/full_suite_reduced \
+  --output_dir analysis_outputs/full_suite_reduced
+```
 
 ### Colab notebooks
-- `notebooks/hirm_tiny_demo.ipynb` – one-click tiny synthetic run and plot.
-- `notebooks/hirm_phase9_reduced.ipynb` – reduced full-suite grid with diagnostics and plots (rename pending in history notes).
 
+* `notebooks/hirm_tiny_demo.ipynb`
+  Tiny synthetic run with basic plots
+
+* `notebooks/hirm_phase9_reduced.ipynb`
+  Reduced full-suite diagnostics and plots
+
+---
+
+## Citation
+
+If you use this code, please cite:
+
+```bibtex
+@article{hirm2025,
+  title   = {Hedging with Invariant Risk Minimization},
+  author  = {Authors},
+  journal = {Working Paper},
+  year    = {2025}
+}
+```
+
+---
+
+## License
+
+Released under the MIT License. See `LICENSE` for details.
+
+---
+
+## Contributions
+
+Contributions are welcome.
+
+For substantial changes (new environments, objectives, or large refactors), please open an issue first so scope and design can be discussed before implementation.
+
+```
+```
