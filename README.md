@@ -1,7 +1,5 @@
 # Robust Generalization for Hedging under Crisis Regime Shifts
 
-[Paper Implementation] • [PyTorch] • [SPY & Synthetic Data]
-
 This repository contains the reference implementation for **HIRM (Hedging with Invariant Risk Minimization)**. 
 
 HIRM addresses the failure of standard Deep Hedging models during market crises. While standard ERM models overfit to low-volatility regime shortcuts, HIRM enforces **decision-level invariance**: it constrains the *hedge ratio's sensitivity to risk* to be stable across market environments, while allowing the internal representation to remain regime-adaptive.
