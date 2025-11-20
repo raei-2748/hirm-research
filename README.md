@@ -1,4 +1,4 @@
-## SISC: Structural Stress-Invariant Control
+## SISC: Structural Invariant Stress Control
 
 Planning to rename from HIRM to SISC for future extensions
 
