@@ -125,7 +125,7 @@ python scripts/run_experiment_grid.py \
   --config configs/experiments/phase9.yaml \
   --datasets synthetic_heston,real_spy \
   --methods erm_baseline,hirm_full \
-  --seeds 0 --device cpu --reduced
+  --seeds 0 --device cpu --reduced --results-dir results/phase9_reduced
 ```
 
 After runs complete, summarize metrics and plots:
@@ -145,6 +145,15 @@ pytest tests/test_phase9_smoke.py -q
 ### Reproducing paper results
 
 Use the full seeds/methods listed in `configs/experiments/phase9.yaml` without `--reduced` and point the analysis script to `results/phase9`. The repository layout keeps runs under `results/phase9/{dataset}/{method}/seed_{seed}` for reproducibility.
+
+### Colab-friendly notebooks
+
+- `notebooks/hirm_tiny_demo.ipynb`: installs the package, runs `scripts/run_tiny_experiment.py` on CPU, and plots the training loss.
+- `notebooks/hirm_phase9_reduced.ipynb`: runs a reduced Phase 9 grid (two datasets × two methods × seed 0), aggregates diagnostics, and displays the summary plots.
+
+### Canonical commands
+
+See `RUNS.md` for a concise list of the most common commands, including full Phase 7/8 grids, diagnostics, and analysis utilities.
 
 ---
 

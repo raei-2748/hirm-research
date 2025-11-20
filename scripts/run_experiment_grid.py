@@ -31,7 +31,6 @@ from hirm.objectives.risk import build_risk_function
 from hirm.utils.config import ConfigNode, load_config, to_plain_dict
 
 
-RESULTS_ROOT = Path("results") / "phase9"
 METHOD_ALIASES = {
     "erm_baseline": "erm",
     "groupdro_baseline": "groupdro",
@@ -44,13 +43,19 @@ METHOD_ALIASES = {
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--methods", type=str, default=None)
-    parser.add_argument("--datasets", type=str, default=None)
-    parser.add_argument("--seeds", type=str, default=None)
-    parser.add_argument("--config", type=str, required=True)
-    parser.add_argument("--num_workers", type=int, default=0)
-    parser.add_argument("--force_rerun", type=int, default=0)
-    parser.add_argument("--device", type=str, default="cpu")
+    parser.add_argument("--methods", type=str, default=None, help="Comma separated method names")
+    parser.add_argument("--datasets", type=str, default=None, help="Comma separated dataset names")
+    parser.add_argument("--seeds", type=str, default=None, help="Comma separated integer seeds")
+    parser.add_argument("--config", type=str, required=True, help="Path to the experiment YAML")
+    parser.add_argument("--num_workers", type=int, default=0, help="Number of dataloader workers (unused for synthetic data)")
+    parser.add_argument("--force_rerun", type=int, default=0, help="Force rerun even if results exist")
+    parser.add_argument("--device", type=str, default="cpu", help="Torch device string, e.g. cpu or cuda:0")
+    parser.add_argument(
+        "--results-dir",
+        type=str,
+        default="results/phase9",
+        help="Root directory to store checkpoints, logs, and diagnostics",
+    )
     parser.add_argument(
         "--reduced",
         action="store_true",
@@ -248,10 +253,11 @@ def run_single_experiment(
     base_cfg: ConfigNode,
     device: torch.device,
     force: bool,
+    results_root: Path,
     method_key: str | None = None,
 ) -> None:
     method_for_builder = method_key or method_name
-    out_dir = RESULTS_ROOT / dataset_name / method_name / f"seed_{seed}"
+    out_dir = results_root / dataset_name / method_name / f"seed_{seed}"
     checkpoint_path = out_dir / "checkpoint.pt"
     diagnostics_path = out_dir / "diagnostics.jsonl"
     train_log_path = out_dir / "train_logs.jsonl"
@@ -328,13 +334,24 @@ def main() -> None:
     device = torch.device(args.device)
     force = bool(args.force_rerun)
     deterministic = bool(getattr(getattr(cfg, "training", {}), "deterministic", False))
+    results_root = Path(args.results_dir)
+    results_root.mkdir(parents=True, exist_ok=True)
 
     for dataset in datasets:
         for display_method, method_key in methods:
             for seed in seeds:
                 print(f"[PHASE9] Starting dataset={dataset} method={display_method} seed={seed}")
                 _set_seed(seed, deterministic=deterministic)
-                run_single_experiment(dataset, display_method, seed, cfg, device, force, method_key=method_key)
+                run_single_experiment(
+                    dataset,
+                    display_method,
+                    seed,
+                    cfg,
+                    device,
+                    force,
+                    results_root=results_root,
+                    method_key=method_key,
+                )
 
 
 if __name__ == "__main__":
