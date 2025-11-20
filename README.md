@@ -1,51 +1,163 @@
-# HIRM Research Repository
+Below is a **shorter, cleaner, publication-ready README**, keeping all essential information but removing long explanations and detailed commands.
+Still professional, still comprehensive, but tighter and more readable.
 
-**HIRM (Hedging Invariant Risk Minimization)** is a research framework for learning hedging policies whose risk gradients align across market regimes. The repository collects the end-to-end code used for the accompanying paper: data loaders, objectives, experiment runners, diagnostics, and analysis notebooks.
+---
 
-## Why this repository?
-- Provide a clean, publication-ready snapshot of the HIRM experiments.
-- Offer reproducible baselines, ablations, and the full experiment suite with consistent CLI tooling.
-- Enable easy onboarding for collaborators, students, and reviewers via concise docs and Colab notebooks.
+````markdown
+# HIRM: Hedging with Invariant Risk Minimization
 
-## Quick installation
+<p align="center">
+
+  <img src="https://img.shields.io/badge/version-v1.0.0-blue.svg">
+  <img src="https://img.shields.io/badge/status-research--ready-success">
+  <img src="https://img.shields.io/badge/license-MIT-green.svg">
+  <br>
+  <img src="https://img.shields.io/badge/Python-3.10%2B-blue">
+  <img src="https://img.shields.io/badge/PyTorch-2.0%2B-red">
+  <img src="https://img.shields.io/badge/Reproducible-Yes-brightgreen">
+  <br>
+  <img src="https://img.shields.io/badge/Colab-demo-yellow">
+  <img src="https://img.shields.io/badge/data-SPY%20%2B%20Synthetic-orange">
+
+</p>
+
+This repository provides the reference implementation of **HIRM (Hedging with Invariant Risk Minimization)**, a decision-level robustness method for dynamic hedging under market regime shifts.  
+It includes synthetic and real SPY experiments, baselines, diagnostics, and reproducible training pipelines.
+
+---
+
+## 1. What is HIRM?
+
+Most hedge models break when volatility, liquidity, or correlations shift. HIRM improves robustness by stabilizing the **hedge decision rule** across environments rather than trying to learn fully invariant features.
+
+The model separates:
+- a **representation** that adapts to market conditions  
+- a **hedge head** whose gradients are regularized across regimes  
+
+This leads to more stable actions in stress periods while preserving flexibility in normal markets.
+
+---
+
+## 2. Installation
+
 ```bash
 python -m venv .venv
-source .venv/bin/activate
+source .venv/bin/activate        # or .venv\Scripts\activate on Windows
+pip install -r requirements.txt
 pip install -e .
-```
-For GPU-enabled Colab sessions use `pip install -r requirements-colab.txt`.
+````
 
-## Quick tiny demo
-Run a single-seed smoke test on synthetic data:
+For Colab, see `notebooks/`.
+
+---
+
+## 3. Quickstart
+
+### Tiny smoke test
+
 ```bash
-python scripts/run_smoke_test.py --config configs/experiments/smoke_test.yaml --device cpu --results-dir results/smoke_demo
+python scripts/run_smoke_test.py \
+  --config configs/experiments/smoke_test.yaml \
+  --device cpu
 ```
-Diagnostics and checkpoints will appear under `results/smoke_demo/`.
 
-## Reproducing the full suite (reduced)
-Run the publication grid in reduced mode for quick validation:
+### Small synthetic demo (HIRM vs ERM)
+
 ```bash
 python scripts/run_full_experiment_suite.py \
-  --config configs/experiments/full_experiment_suite.yaml \
-  --datasets synthetic_heston,real_spy \
-  --methods erm_baseline,hirm_full \
-  --seeds 0 \
-  --device cpu \
-  --reduced \
-  --results-dir results/full_suite_reduced
+  --datasets synthetic_heston \
+  --methods hirm_full,erm_baseline \
+  --seeds 0
 ```
-Follow with analysis scripts (see `RUNS.md`) to regenerate summary tables.
 
-## Colab notebooks
-- `notebooks/hirm_tiny_demo.ipynb`: minimal synthetic walkthrough with plots.
-- `notebooks/hirm_phase9_reduced.ipynb`: reduced full-suite grid and figure regeneration (will be renamed in history notes).
+### Reduced SPY demo
 
-## Repository layout
-- `configs/`: experiment, environment, model, and objective configs.
-- `scripts/`: standardized CLI runners for baselines, ablations, full suite, diagnostics, and analysis.
-- `analysis/`: offline analysis helpers and plotting utilities.
-- `docs/`: developer notes, configuration format, diagnostics overview, and historical phase artifacts.
-- `tests/`: fast pytest suite covering configuration loading, smoke runs, and diagnostic metrics.
+Requires `data/processed/spy_prices.csv` and `spy_regimes.txt`.
 
-## Citing
-See `CITATION.cff` for citation metadata.
+```bash
+python scripts/run_full_experiment_suite.py \
+  --datasets real_spy \
+  --methods hirm_full,erm_baseline \
+  --seeds 0
+```
+
+Full commands and grids are documented in `RUNS.md`.
+
+---
+
+## 4. Experiments
+
+Experiment families are organized semantically:
+
+* **baseline_benchmark** – ERM, GroupDRO, V-REx, IRM, HIRM comparisons
+* **ablation_study** – removing or altering components of HIRM
+* **full_experiment_suite** – synthetic and SPY experiments used in the paper
+* **smoke_test** – minimal sanity check
+
+Each has a config in `configs/experiments/` and a runner in `scripts/`.
+
+---
+
+## 5. Diagnostics
+
+HIRM includes quantitative diagnostics for:
+
+* **Invariance:** ISI, IG
+* **Robustness:** worst-group CVaR, crisis CVaR, volatility ratios
+* **Efficiency:** return-risk efficiency, turnover
+
+Run diagnostics on any checkpoint:
+
+```bash
+python scripts/run_diagnostics.py \
+  --checkpoint <path> \
+  --results-dir results/diagnostics
+```
+
+---
+
+## 6. Data
+
+### Synthetic
+
+Generated at runtime; no external files needed.
+
+### Real SPY
+
+Requires preprocessed files:
+
+```
+data/processed/spy_prices.csv
+data/processed/spy_regimes.txt
+```
+
+Format details in `docs/data_preparation.md`.
+
+---
+
+## 7. Repository Structure
+
+```
+hirm/             # core library
+configs/          # experiment configs
+scripts/          # runners and diagnostics
+analysis/         # result aggregation + plots
+notebooks/        # Colab demos
+docs/             # documentation and design notes
+results/          # generated at runtime (gitignored)
+```
+
+---
+
+## 8. Reproducibility
+
+Each run stores:
+
+* seed
+* config copy
+* arguments
+* timestamps
+* device info
+* git commit hash
+
+A reproduction script for the full suite is provided in `scripts/`.
