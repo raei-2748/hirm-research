@@ -1,4 +1,4 @@
-## CDSI: Causally Distilled Structural Invariance
+## Praesidium: Causally Distilled Structural Invariance
 
 Planning to rename from HIRM to SISC for future extensions
 
