@@ -114,10 +114,10 @@ def main() -> None:
     import argparse
 
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--root", type=str, default="results/phase8", help="Path to ablation outputs")
+    parser.add_argument("--root", type=str, default="results/ablation_study", help="Path to ablation outputs")
     parser.add_argument("--root_dir", type=str, help="Alias for --root", dest="root_alias")
     parser.add_argument("--metrics", type=str, default="metrics/cvar95/crisis,metrics/wg,metrics/isi/global,metrics/ig/global,metrics/pnl/mean,metrics/er,metrics/tr")
-    parser.add_argument("--output", type=str, default="results/phase8/ablation_summary.csv")
+    parser.add_argument("--output", type=str, default="results/ablation_study/ablation_summary.csv")
     args = parser.parse_args()
 
     metrics = [m.strip() for m in args.metrics.split(",") if m.strip()]

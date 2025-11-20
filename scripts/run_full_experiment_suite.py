@@ -1,4 +1,8 @@
-"""Phase 8 ablation grid runner."""
+"""Full experiment suite runner.
+
+This entrypoint mirrors the publication grid: datasets × methods × seeds with
+standard diagnostics and a reproducible results layout.
+"""
 from __future__ import annotations
 
 import argparse
@@ -19,7 +23,6 @@ import torch
 
 from hirm.diagnostics import compute_all_diagnostics, compute_crisis_cvar
 from hirm.diagnostics.invariance_helpers import collect_invariance_signals
-from hirm.experiments.ablations import apply_ablation_to_config, get_ablation_config, list_ablations
 from hirm.experiments.datasets import ExperimentDataset, get_dataset_builder
 from hirm.experiments.methods import get_method_builder
 from hirm.experiments.registry import ExperimentRunConfig
@@ -28,16 +31,36 @@ from hirm.objectives.risk import build_risk_function
 from hirm.utils.config import ConfigNode, load_config, to_plain_dict
 
 
+METHOD_ALIASES = {
+    "erm_baseline": "erm",
+    "groupdro_baseline": "groupdro",
+    "vrex_baseline": "vrex",
+    "irm_baseline": "irm",
+    "hirm_full": "hirm",
+    "hirm_full_irm": "hirm",
+}
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--ablation_names", type=str, default=None)
-    parser.add_argument("--datasets", type=str, default=None)
-    parser.add_argument("--seeds", type=str, default=None)
-    parser.add_argument("--config", type=str, required=True)
-    parser.add_argument("--num_workers", type=int, default=0)
-    parser.add_argument("--force_rerun", type=int, default=0)
-    parser.add_argument("--device", type=str, default="cpu")
-    parser.add_argument("--reduced", action="store_true", help="Run a reduced grid for smoke testing")
+    parser.add_argument("--methods", type=str, default=None, help="Comma separated method names")
+    parser.add_argument("--datasets", type=str, default=None, help="Comma separated dataset names")
+    parser.add_argument("--seeds", type=str, default=None, help="Comma separated integer seeds")
+    parser.add_argument("--config", type=str, required=True, help="Path to the experiment YAML")
+    parser.add_argument("--num_workers", type=int, default=0, help="Number of dataloader workers (unused for synthetic data)")
+    parser.add_argument("--force_rerun", type=int, default=0, help="Force rerun even if results exist")
+    parser.add_argument("--device", type=str, default="cpu", help="Torch device string, e.g. cpu or cuda:0")
+    parser.add_argument(
+        "--results-dir",
+        type=str,
+        default="results/full_experiment_suite",
+        help="Root directory to store checkpoints, logs, and diagnostics",
+    )
+    parser.add_argument(
+        "--reduced",
+        action="store_true",
+        help="Run a reduced grid for smoke testing (single seed, short training)",
+    )
     return parser.parse_args()
 
 
@@ -98,12 +121,8 @@ def _run_diagnostics(trainer, train_data: ExperimentDataset, test_data: Experime
     diag_cfg = getattr(cfg, "diagnostics", {})
     isi_cfg = getattr(diag_cfg, "isi", {})
 
-    # --- Normalize alpha_components robustly to a 3-element float list ---
     raw_alpha = isi_cfg.get("alpha_components", [1.0, 1.0, 1.0])
-
-    # Handle scalar inputs
     if isinstance(raw_alpha, (int, float, str)):
-        # Cast scalar-string or scalar to float three times
         try:
             val = float(raw_alpha)
         except Exception:
@@ -111,8 +130,6 @@ def _run_diagnostics(trainer, train_data: ExperimentDataset, test_data: Experime
         alpha_components = [val, val, val]
     else:
         alpha_components = list(raw_alpha)
-
-    # Handle incorrect lengths
     if len(alpha_components) == 1:
         alpha_components = [alpha_components[0]] * 3
     elif len(alpha_components) == 2:
@@ -120,27 +137,24 @@ def _run_diagnostics(trainer, train_data: ExperimentDataset, test_data: Experime
     elif len(alpha_components) > 3:
         alpha_components = alpha_components[:3]
 
-    # Final fallback if length still malformed
-    if len(alpha_components) != 3:
-        alpha_components = [1.0, 1.0, 1.0]
-
-    # Enforce float types for all values (critical fix)
-    alpha_components = [float(a) for a in alpha_components]
-
     train_batch, train_env_ids = _combine_environments(train_data, device)
     test_batch, test_env_ids = _combine_environments(test_data, device)
 
-    env_risks_tensor, train_pnl, _, _ = compute_env_risks(trainer.model, train_batch, train_env_ids, trainer.risk_fn)
-    env_risks = {f"env_{env}": float(risk.detach().cpu()) for env, risk in env_risks_tensor.items()}
+    env_risks, train_pnl, _, _ = compute_env_risks(trainer.model, train_batch, train_env_ids, trainer.risk_fn)
+    test_env_risks, eval_pnl, eval_actions, _ = compute_env_risks(trainer.model, test_batch, test_env_ids, trainer.risk_fn)
 
-    test_env_risks_tensor, eval_pnl, eval_actions, eval_env_tensor = compute_env_risks(
-        trainer.model, test_batch, test_env_ids, trainer.risk_fn
+    head_gradients, layer_activations = collect_invariance_signals(
+        trainer.model,
+        train_data.environments,
+        getattr(trainer.model, "invariance_mode", "head_only"),
+        device,
+        trainer.risk_fn,
+        max_samples_per_env=int(getattr(isi_cfg, "max_samples_per_env", 256)),
     )
-    test_env_risks = {f"env_{env}": float(risk.detach().cpu()) for env, risk in test_env_risks_tensor.items()}
 
     robustness_inputs = {
         "wg_inputs": {
-            "env_risks": test_env_risks,
+            "env_risks": {f"env_{k}": float(v.detach().cpu()) for k, v in test_env_risks.items()},
             "alpha": float(getattr(getattr(diag_cfg, "wg", {}), "alpha", 0.05)),
             "num_grid": int(getattr(getattr(diag_cfg, "wg", {}), "num_grid", 1000)),
         },
@@ -164,19 +178,10 @@ def _run_diagnostics(trainer, train_data: ExperimentDataset, test_data: Experime
         },
     }
 
-    head_gradients, layer_activations = collect_invariance_signals(
-        trainer.model,
-        train_data.environments,
-        getattr(trainer.model, "invariance_mode", "head_only"),
-        device,
-        trainer.risk_fn,
-        max_samples_per_env=int(getattr(isi_cfg, "max_samples_per_env", 256)),
-    )
-
     invariance_inputs = {
         "isi_inputs": {
-            "env_risks": env_risks,
-            "head_gradients": head_gradients,
+            "env_risks": {f"env_{k}": float(v.detach().cpu()) for k, v in env_risks.items()},
+            "head_gradients": {k: v.detach().cpu() for k, v in head_gradients.items()},
             "layer_activations": layer_activations,
             "tau_R": float(isi_cfg.get("tau_R", 0.05)),
             "tau_C": float(isi_cfg.get("tau_C", 1.0)),
@@ -187,7 +192,7 @@ def _run_diagnostics(trainer, train_data: ExperimentDataset, test_data: Experime
             "trim_fraction": float(isi_cfg.get("trim_fraction", 0.1)),
         },
         "ig_inputs": {
-            "test_env_risks": test_env_risks,
+            "test_env_risks": {f"env_{k}": float(v.detach().cpu()) for k, v in test_env_risks.items()},
             "tau_IG": float(isi_cfg.get("tau_IG", 0.05)),
             "eps": float(isi_cfg.get("eps", 1e-8)),
         },
@@ -228,40 +233,45 @@ def _run_diagnostics(trainer, train_data: ExperimentDataset, test_data: Experime
         crisis_metrics: dict[str, float] = {}
         for name, pnl_tensor in env_pnls.items():
             if "crisis" in name or name.startswith("20"):
-                result = compute_crisis_cvar(pnl_time_series=pnl_tensor.tolist(), alpha=crisis_alpha)
-                crisis_metrics[name] = float(result.get("crisis_cvar", 0.0))
-        if crisis_metrics:
-            diagnostics["crisis_cvar"] = crisis_metrics
-            if "crisis" in crisis_metrics:
-                diagnostics["metrics/cvar95/crisis"] = crisis_metrics.get("crisis", 0.0)
+                cvar_val = float(torch.quantile(pnl_tensor, crisis_alpha))
+                crisis_metrics[name] = cvar_val
+        diagnostics["crisis_cvar"] = crisis_metrics
+
     return diagnostics
 
 
-def _resolve_list(value: Any) -> list[str]:
+def _resolve_list(value: str | None) -> list[str] | None:
     if value is None:
-        return []
-    if isinstance(value, str):
-        return [v.strip() for v in value.split(",") if v.strip()]
-    return list(value)
+        return None
+    return [v.strip() for v in value.split(",") if v.strip()]
 
 
-def run_single_ablation(dataset_name: str, ablation_name: str, seed: int, base_cfg: ConfigNode, device: torch.device, force: bool):
-    ablation = get_ablation_config(ablation_name)
-    if ablation is None:
-        raise ValueError(f"Unknown ablation {ablation_name}")
-    out_dir = Path("results") / "phase8" / dataset_name / ablation.name / f"seed_{seed}"
-    _ensure_dir(out_dir)
+def run_single_experiment(
+    dataset_name: str,
+    method_name: str,
+    seed: int,
+    base_cfg: ConfigNode,
+    device: torch.device,
+    force: bool,
+    results_root: Path,
+    method_key: str | None = None,
+) -> None:
+    method_for_builder = method_key or method_name
+    out_dir = results_root / dataset_name / method_name / f"seed_{seed}"
     checkpoint_path = out_dir / "checkpoint.pt"
     diagnostics_path = out_dir / "diagnostics.jsonl"
     train_log_path = out_dir / "train_logs.jsonl"
-    config_path = out_dir / "config.yaml"
     metadata_path = out_dir / "metadata.json"
+    config_path = out_dir / "config.json"
 
     if not force and checkpoint_path.exists() and diagnostics_path.exists():
-        print(f"[ABLATION] Skipping completed run dataset={dataset_name} ablation={ablation_name} seed={seed}")
+        print(
+            f"[FULL_SUITE] Skipping completed run dataset={dataset_name} "
+            f"method={method_name} seed={seed}"
+        )
         return
 
-    cfg = apply_ablation_to_config(base_cfg, ablation)
+    cfg = ConfigNode(to_plain_dict(base_cfg))
     cfg.seed = seed
     _ensure_dir(out_dir)
     config_path.write_text(json.dumps(to_plain_dict(cfg), indent=2), encoding="utf-8")
@@ -271,22 +281,18 @@ def run_single_ablation(dataset_name: str, ablation_name: str, seed: int, base_c
     dataset_val = dataset_builder(cfg, split="val", seed=seed + 13)
     dataset_test = dataset_builder(cfg, split="test", seed=seed + 31)
 
-    # --- Validation Fallback ---
-    # If the validation split is empty (e.g., real_spy has no 'high' regime episodes
-    # in the specified date interval), fall back to using the training split.
     if not getattr(dataset_val, "environments", None):
         print(f"[WARN] Validation split empty for dataset={dataset_name}, using train split as validation.")
         dataset_val = dataset_train
 
     run_cfg = ExperimentRunConfig(
         dataset=dataset_name,
-        method=ablation.method,
+        method=method_for_builder,
         seed=seed,
         config=cfg,
         device=device,
-        ablation=ablation,
     )
-    trainer_builder = get_method_builder(ablation.method)
+    trainer_builder = get_method_builder(method_for_builder)
     trainer = trainer_builder(run_cfg)
     trainer.set_datasets(train=dataset_train, val=dataset_val)
 
@@ -297,45 +303,68 @@ def run_single_ablation(dataset_name: str, ablation_name: str, seed: int, base_c
     elapsed = time.time() - start
 
     _write_jsonl(train_log_path, logs)
-    _write_jsonl(diagnostics_path, [
-        {
-            "method": ablation.method,
-            "dataset": dataset_name,
-            "seed": seed,
-            "ablation_name": ablation.name,
-            **diagnostics,
-        }
-    ])
+    _write_jsonl(
+        diagnostics_path,
+        [
+            {
+                "method": method_name,
+                "dataset": dataset_name,
+                "seed": seed,
+                **diagnostics,
+            }
+        ],
+    )
     metadata = {
         "git_commit": os.popen("git rev-parse HEAD").read().strip(),
         "timestamp": time.time(),
         "dataset": dataset_name,
-        "method": ablation.method,
+        "method": method_name,
         "seed": seed,
-        "ablation_name": ablation.name,
         "training_time_seconds": elapsed,
         "library_versions": {"torch": torch.__version__},
+        "command": " ".join(sys.argv),
+        "device": str(device),
     }
     metadata_path.write_text(json.dumps(metadata, indent=2), encoding="utf-8")
-    print(f"[ABLATION] Finished dataset={dataset_name} ablation={ablation_name} seed={seed}")
+    print(f"[FULL_SUITE] Finished dataset={dataset_name} method={method_name} seed={seed}")
 
 
 def main() -> None:
     args = parse_args()
     cfg = load_config(args.config)
-    ablations = _resolve_list(args.ablation_names) or list_ablations()
-    datasets = _resolve_list(args.datasets) or ["synthetic_heston", "real_spy"]
-    seeds = [int(s) for s in (_resolve_list(args.seeds) or list(range(10 if not args.reduced else 2)))]
+    grid_cfg = getattr(cfg, "experiment_grid", {})
+    default_methods = grid_cfg.get("methods", ["erm", "hirm"])
+    default_datasets = grid_cfg.get("datasets", ["synthetic_heston", "real_spy"])
+    default_seeds = grid_cfg.get("seeds", list(range(3 if not args.reduced else 1)))
+
+    raw_methods = _resolve_list(args.methods) or default_methods
+    methods = [(m, METHOD_ALIASES.get(m, m)) for m in raw_methods]
+    datasets = _resolve_list(args.datasets) or default_datasets
+    seeds = [int(s) for s in (_resolve_list(args.seeds) or default_seeds)]
     device = torch.device(args.device)
     force = bool(args.force_rerun)
     deterministic = bool(getattr(getattr(cfg, "training", {}), "deterministic", False))
+    results_root = Path(args.results_dir)
+    results_root.mkdir(parents=True, exist_ok=True)
 
     for dataset in datasets:
-        for ablation_name in ablations:
+        for display_method, method_key in methods:
             for seed in seeds:
-                print(f"[ABLATION] Starting dataset={dataset} ablation={ablation_name} seed={seed}")
+                print(
+                    f"[FULL_SUITE] Starting dataset={dataset} "
+                    f"method={display_method} seed={seed}"
+                )
                 _set_seed(seed, deterministic=deterministic)
-                run_single_ablation(dataset, ablation_name, seed, cfg, device, force)
+                run_single_experiment(
+                    dataset,
+                    display_method,
+                    seed,
+                    cfg,
+                    device,
+                    force,
+                    results_root=results_root,
+                    method_key=method_key,
+                )
 
 
 if __name__ == "__main__":

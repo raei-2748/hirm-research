@@ -1,4 +1,4 @@
-"""Grid runner for Phase 7 benchmark experiments."""
+"""Baseline benchmark grid runner."""
 from __future__ import annotations
 
 import argparse
@@ -27,13 +27,14 @@ from hirm.experiments.registry import ExperimentRunConfig
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--methods", type=str, default=None)
-    parser.add_argument("--datasets", type=str, default=None)
-    parser.add_argument("--seeds", type=str, default=None)
-    parser.add_argument("--config", type=str, required=True)
-    parser.add_argument("--num_workers", type=int, default=0)
-    parser.add_argument("--force_rerun", type=int, default=0)
-    parser.add_argument("--device", type=str, default="cpu")
+    parser.add_argument("--methods", type=str, default=None, help="Comma separated method names")
+    parser.add_argument("--datasets", type=str, default=None, help="Comma separated dataset names")
+    parser.add_argument("--seeds", type=str, default=None, help="Comma separated integer seeds")
+    parser.add_argument("--config", type=str, required=True, help="Path to the experiment YAML")
+    parser.add_argument("--num_workers", type=int, default=0, help="Number of dataloader workers")
+    parser.add_argument("--force_rerun", type=int, default=0, help="Force rerun even if outputs exist")
+    parser.add_argument("--device", type=str, default="cpu", help="Torch device string, e.g. cpu or cuda:0")
+    parser.add_argument("--results-dir", type=str, default="results/baseline_benchmark", help="Root directory for outputs")
     return parser.parse_args()
 
 
@@ -272,8 +273,16 @@ def _resolve_list(value: Any) -> List[str]:
     return list(value)
 
 
-def run_single_experiment(dataset_name: str, method_name: str, seed: int, base_cfg: ConfigNode, device: torch.device, force: bool):
-    out_dir = Path("results") / dataset_name / method_name / f"seed_{seed}"
+def run_single_experiment(
+    dataset_name: str,
+    method_name: str,
+    seed: int,
+    base_cfg: ConfigNode,
+    device: torch.device,
+    force: bool,
+    results_root: Path,
+):
+    out_dir = results_root / dataset_name / method_name / f"seed_{seed}"
     _ensure_dir(out_dir)
     checkpoint_path = out_dir / "checkpoint.pt"
     diagnostics_path = out_dir / "diagnostics.jsonl"
@@ -337,6 +346,8 @@ def run_single_experiment(dataset_name: str, method_name: str, seed: int, base_c
         "seed": seed,
         "training_time_seconds": elapsed,
         "library_versions": {"torch": torch.__version__},
+        "command": " ".join(sys.argv),
+        "device": str(device),
     }
     metadata_path.write_text(json.dumps(metadata, indent=2), encoding="utf-8")
     print(f"[GRID] Finished dataset={dataset_name} method={method_name} seed={seed}")
@@ -351,13 +362,15 @@ def main() -> None:
     device = torch.device(args.device)
     force = bool(args.force_rerun)
     deterministic = bool(getattr(getattr(cfg, "training", {}), "deterministic", False))
+    results_root = Path(args.results_dir)
+    results_root.mkdir(parents=True, exist_ok=True)
 
     for dataset in datasets:
         for method in methods:
             for seed in seeds:
                 print(f"[GRID] Starting dataset={dataset} method={method} seed={seed}")
                 _set_seed(seed, deterministic=deterministic)
-                run_single_experiment(dataset, method, seed, cfg, device, force)
+                run_single_experiment(dataset, method, seed, cfg, device, force, results_root)
 
 
 if __name__ == "__main__":

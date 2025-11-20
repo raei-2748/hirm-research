@@ -59,8 +59,8 @@ class DummyParam:
 
 
 def test_phase1_stack(tmp_path: Path) -> None:
-    cfg = load_config("configs/experiments/tiny_test.yaml")
-    assert cfg.experiment.name == "tiny_test"
+    cfg = load_config("configs/experiments/smoke_test.yaml")
+    assert cfg.experiment.name == "smoke_test"
     assert cfg.training.num_steps == cfg["training"]["num_steps"]
 
     set_seed(123)

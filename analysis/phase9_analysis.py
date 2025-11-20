@@ -88,8 +88,8 @@ def plot_isi_vs_ig(summary: pd.DataFrame, output_dir: Path) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--root_dir", type=str, default="results/phase9")
-    parser.add_argument("--output_dir", type=str, default="analysis_outputs/phase9")
+    parser.add_argument("--root_dir", type=str, default="results/full_experiment_suite")
+    parser.add_argument("--output_dir", type=str, default="analysis_outputs/full_experiment_suite")
     args = parser.parse_args()
 
     root = Path(args.root_dir)
