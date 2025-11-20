@@ -1,4 +1,6 @@
-## HIRM: Robust Generalization for Hedging under Crisis Regime Shifts
+## SISC: Structural Stress-Invariant Control
+
+Planning to rename from HIRM to SISC for future extensions
 
 This repository implements **HIRM** (Hedging Invariant Risk Minmization), a portfolio hedging framework that learns representations and hedge policies whose **risk gradients are aligned across market regimes**. The codebase supports synthetic stress tests, real SPY data, standard baselines (ERM, IRM, GroupDRO, VREx), diagnostics for invariance, robustness and efficiency, and a full ablation suite for the HIRM architecture.
 
