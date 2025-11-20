@@ -1,5 +1,7 @@
 ## Praesidium: Causally Distilled Structural Invariance
 
+[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+
 Note: Planning to rename from HIRM to Praesidium for future extensions
 
 This repository implements **HIRM** (Hedging Invariant Risk Minmization), a portfolio hedging framework that learns representations and hedge policies whose **risk gradients are aligned across market regimes**. The codebase supports synthetic stress tests, real SPY data, standard baselines (ERM, IRM, GroupDRO, VREx), diagnostics for invariance, robustness and efficiency, and a full ablation suite for the HIRM architecture.
