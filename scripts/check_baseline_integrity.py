@@ -1,4 +1,4 @@
-"""Validate that Phase 7 results directories are complete."""
+"""Validate that benchmark results directories are complete."""
 from __future__ import annotations
 
 import argparse
@@ -16,9 +16,10 @@ REQUIRED_FILES = {
     "train_logs.jsonl",
     "checkpoint.pt",
     "diagnostics.jsonl",
-    "config.yaml",
     "metadata.json",
 }
+
+CONFIG_CANDIDATES = ("config.json", "config.yaml")
 
 
 def parse_args() -> argparse.Namespace:
@@ -45,6 +46,7 @@ def check_run(dataset: str, method: str, seed: int) -> Tuple[bool, Dict[str, boo
     status = {}
     for fname in REQUIRED_FILES:
         status[fname] = (base / fname).exists()
+    status["config_snapshot"] = any((base / candidate).exists() for candidate in CONFIG_CANDIDATES)
     return all(status.values()), status
 
 

@@ -9,12 +9,14 @@ def test_ablation_study_and_analysis(tmp_path):
 
     cmd = [
         sys.executable,
-        "scripts/run_ablation_study.py",
+        "scripts/run_grid.py",
         "--config",
         "configs/experiments/ablation_study.yaml",
+        "--mode",
+        "ablation",
         "--datasets",
         "synthetic_heston",
-        "--ablation_names",
+        "--ablations",
         "hirm_full,erm_baseline",
         "--seeds",
         "0",

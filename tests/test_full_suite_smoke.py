@@ -8,12 +8,14 @@ def test_full_suite_smoke(tmp_path):
 
     cmd = [
         sys.executable,
-        "scripts/run_full_experiment_suite.py",
+        "scripts/run_grid.py",
         "--config",
         "configs/experiments/full_experiment_suite.yaml",
+        "--mode",
+        "ablation",
         "--datasets",
         "synthetic_heston,real_spy",
-        "--methods",
+        "--ablations",
         "erm_baseline,hirm_full",
         "--seeds",
         "0",

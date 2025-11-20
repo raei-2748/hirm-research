@@ -1,145 +1,66 @@
-# Hedging with Invariant Risk Minimization
+# Robust Generalization for Hedging under Crisis Regime Shifts
 
-*Note: Future versions may adopt the project name **Praesidium** (Causal Distilled Structural Invariance).*
+[Paper Implementation] • [PyTorch] • [SPY & Synthetic Data]
 
-<p align="left">
+This repository contains the reference implementation for **HIRM (Hedging with Invariant Risk Minimization)**. 
 
-  <img src="https://img.shields.io/badge/version-v1.0.0-blue.svg">
-  <img src="https://img.shields.io/badge/license-MIT-green.svg">
-  <img src="https://img.shields.io/badge/Python-3.10%2B-blue">
-  <img src="https://img.shields.io/badge/PyTorch-2.0%2B-red">
-  <img src="https://img.shields.io/badge/Reproducible-Yes-brightgreen">
-  <img src="https://img.shields.io/badge/Colab-demo-yellow">
-  <img src="https://img.shields.io/badge/data-SPY%20%2B%20Synthetic-orange">
+HIRM addresses the failure of standard Deep Hedging models during market crises. While standard ERM models overfit to low-volatility regime shortcuts, HIRM enforces **decision-level invariance**: it constrains the *hedge ratio's sensitivity to risk* to be stable across market environments, while allowing the internal representation to remain regime-adaptive.
 
-</p>
+## Key Features
 
-This repository provides the reference implementation of **HIRM (Hedging with Invariant Risk Minimization)**, a decision-level robustness method for dynamic hedging under regime shifts.
-
-Instead of enforcing invariance on features or losses, HIRM regularizes the **hedge decision rule** across environments. The architecture separates:
-
-- a **representation module** that adapts to market structure  
-- a **hedge head** regularized to remain stable across regimes  
-
-The codebase includes synthetic environments, SPY experiments, standard baselines, and diagnostics.
-
----
-
-## Installation
-
-```bash
-python -m venv .venv
-source .venv/bin/activate         # or .venv\Scripts\activate on Windows
-pip install -r requirements.txt
-pip install -e .
-````
-
-For Colab usage, see `notebooks/`.
-
----
+*   **Objective:** Head Gradient Cosine Alignment (HGCA) penalty (Section 4.2).
+*   **Architecture:** Disentangled Representation ($\phi$) and Decision Head ($\psi$).
+*   **Diagnostics:** 
+    *   **ISI (Internal Stability Index):** Measures gradient and feature stability.
+    *   **WG (Worst-Group Risk):** CVaR-95 under the worst realized regime.
+    *   **ER/TR:** Efficiency and Turnover ratios.
 
 ## Quickstart
 
-### Smoke test
-
+### 1. Installation
 ```bash
-python scripts/run_smoke_test.py \
-  --config configs/experiments/smoke_test.yaml \
-  --device cpu
+pip install -r requirements.txt
+pip install -e .
 ```
 
-### Synthetic demo
-
+### 2. Run the Benchmark (Table 2 in Paper)
+Compare ERM, GroupDRO, V-REx, and HIRM on Synthetic Heston data.
 ```bash
-python scripts/run_full_experiment_suite.py \
+python scripts/run_grid.py \
+  --config configs/experiments/baseline_benchmark.yaml \
+  --mode benchmark \
   --datasets synthetic_heston \
-  --methods hirm_full,erm_baseline \
-  --seeds 0
+  --device cuda:0
 ```
 
-### SPY demo
-
-Requires:
-
-```text
-data/processed/spy_prices.csv
-data/processed/spy_regimes.txt
-```
-
-Then:
-
+### 3. Run Real-World SPY Analysis
+Requires `data/processed/spy_prices.csv`. 
 ```bash
-python scripts/run_full_experiment_suite.py \
-  --datasets real_spy \
-  --methods hirm_full,erm_baseline \
-  --seeds 0
+python scripts/run_grid.py \
+  --config configs/experiments/baseline_benchmark.yaml \
+  --mode benchmark \
+  --datasets real_spy
 ```
 
-Additional commands are listed in `RUNS.md`.
-
----
-
-## Experiments
-
-Experiment groups:
-
-* **baseline_benchmark**: ERM, GroupDRO, V-REx, IRM, HIRM
-* **ablation_study**: HIRM component analysis
-* **full_experiment_suite**: combined synthetic and SPY grid
-* **smoke_test**: minimal end to end check
-
-Configs live in `configs/experiments/`, with matching runners under `scripts/`.
-
----
-
-## Diagnostics
-
-Diagnostics cover:
-
-* **Invariance**: ISI, Invariance Gap
-* **Robustness**: worst group CVaR, crisis CVaR, volatility ratios
-* **Efficiency**: return risk efficiency, turnover
-
-Example:
-
+### 4. Diagnostics & Plotting
+Summarize results into the I-R-E (Invariance-Robustness-Efficiency) tables.
 ```bash
-python scripts/run_diagnostics.py \
-  --checkpoint <path> \
-  --results-dir results/diagnostics
+python scripts/summarize_diagnostics.py \
+  --results-dir results/custom \
+  --out results/summary.json
 ```
-
----
-
-## Data
-
-* **Synthetic**: generated at runtime, no external files required
-* **SPY**: prices and regimes under `data/processed/`
-
-See `docs/data_preparation.md` for details.
-
----
 
 ## Repository Structure
 
-```text
-hirm/             core library: models, envs, objectives, training, diagnostics
-configs/          experiment and model configs
-scripts/          training, grids, diagnostics, utilities
-analysis/         aggregation and plotting
-notebooks/        Colab demos
-docs/             documentation and design notes
-results/          run outputs (gitignored)
-```
+*   `hirm/objectives/`: Implementation of ERM, IRM, GroupDRO, VREx, and HIRM.
+*   `hirm/diagnostics/`: Invariance (ISI, IG), Robustness (WG, VR), Efficiency (ER, TR).
+*   `hirm/envs/`: Heston/Merton synthetic generators and SPY data loaders.
+*   `configs/`: Experiment hyperparameters aligned with the paper.
 
----
 
-## Reproducibility
+### Summary of Actions Taken
 
-Each run saves:
-
-* config snapshot
-* seed and CLI arguments
-* timestamps and device info
-* git commit hash
-
-Standard patterns are provided in `scripts/` and `RUNS.md`.
+1.  **Engineered a `train_and_evaluate` engine** to replace 1000+ lines of copy-pasted script logic.
+2.  **Unified the CLI** into `run_grid.py` with clear modes (`benchmark` vs `ablation`).
+3.  **Aligned Code with Math:** The `HIRMObjective` now explicitly comments on the normalization and cosine operations derived in the paper.
+4.  **Cleaned Artifacts:** Removed "Phase 7/8/9" references from the user-facing documentation.
