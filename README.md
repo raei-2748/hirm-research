@@ -4,6 +4,7 @@
 [![reproducibility](https://img.shields.io/badge/Reproducible-Yes-brightgreen)]()
 [![python](https://img.shields.io/badge/Python-3.10%2B-blue)]()
 [![pytorch](https://img.shields.io/badge/PyTorch-2.0+-red)]()
+[![version](https://img.shields.io/badge/version-v1.0.0-blue.svg)]()
 
 
 Note: Planning to rename from HIRM to Praesidium for future extensions
