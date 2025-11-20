@@ -105,7 +105,8 @@ Each experiment has:
 * a config file under `configs/experiments/`
 * a corresponding runner in `scripts/`
 
----
+4.2 Ablation study
+Measure how performance and diagnostics change when HIRM components are removed or altered, such as:
 
 ## Diagnostics
 
@@ -186,7 +187,9 @@ docs/             # Documentation and design notes
 results/          # Created at runtime (gitignored)
 ```
 
----
+6. Data
+6.1 Synthetic environments
+Synthetic environments live under hirm/envs/synthetic/. They allow:
 
 ## Reproducibility
 
@@ -295,7 +298,7 @@ python analysis/phase9_analysis.py \
 * `notebooks/hirm_phase9_reduced.ipynb`
   Reduced full-suite diagnostics and plots
 
----
+Each run directory records:
 
 ## Citation
 
@@ -316,7 +319,24 @@ If you use this code, please cite:
 
 Released under the MIT License. See `LICENSE` for details.
 
----
+9. Colab usage
+The notebooks/ directory contains Colab ready notebooks:
+
+hirm_tiny_demo.ipynb
+
+installs the package
+
+runs a tiny synthetic experiment
+
+visualizes hedge behavior vs unhedged portfolio
+
+hirm_full_suite_reduced.ipynb
+
+runs a reduced version of the full experiment suite
+
+reproduces key plots used in the paper
+
+To use Colab:
 
 ## Contributions
 
