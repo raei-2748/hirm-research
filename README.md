@@ -1,28 +1,18 @@
-Below is a **shorter, cleaner, publication-ready README**, keeping all essential information but removing long explanations and detailed commands.
-Still professional, still comprehensive, but tighter and more readable.
-
----
-
-````markdown
-# HIRM: Hedging with Invariant Risk Minimization
+## HIRM: Hedging with Invariant Risk Minimization
+Note: Maybe renamed to Praesidium, Causal Distilled Structural Invariance for future developments.
 
 <p align="center">
 
   <img src="https://img.shields.io/badge/version-v1.0.0-blue.svg">
-  <img src="https://img.shields.io/badge/status-research--ready-success">
   <img src="https://img.shields.io/badge/license-MIT-green.svg">
-  <br>
   <img src="https://img.shields.io/badge/Python-3.10%2B-blue">
   <img src="https://img.shields.io/badge/PyTorch-2.0%2B-red">
   <img src="https://img.shields.io/badge/Reproducible-Yes-brightgreen">
-  <br>
   <img src="https://img.shields.io/badge/Colab-demo-yellow">
   <img src="https://img.shields.io/badge/data-SPY%20%2B%20Synthetic-orange">
 
-</p>
 
-This repository provides the reference implementation of **HIRM (Hedging with Invariant Risk Minimization)**, a decision-level robustness method for dynamic hedging under market regime shifts.  
-It includes synthetic and real SPY experiments, baselines, diagnostics, and reproducible training pipelines.
+This repository provides the reference implementation of **HIRM (Hedging with Invariant Risk Minimization)**, a decision-level robustness method for dynamic hedging under market regime shifts. It includes synthetic and real SPY experiments, baselines, diagnostics, and reproducible training pipelines.
 
 ---
 
