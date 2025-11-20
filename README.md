@@ -9,347 +9,390 @@
 
 Note: Planning to rename from HIRM to Praesidium for future extensions
 
-This repository implements **HIRM** (Hedging Invariant Risk Minmization), a portfolio hedging framework that learns representations and hedge policies whose **risk gradients are aligned across market regimes**. The codebase supports synthetic stress tests, real SPY data, standard baselines (ERM, IRM, GroupDRO, VREx), diagnostics for invariance, robustness and efficiency, and a full ablation suite for the HIRM architecture.
+</p>
 
-Maybe renamed to Praesidium in the future.
+This repository contains the reference implementation of **HIRM (Hedging with Invariant Risk Minimization)**, a decision level invariance approach for robust portfolio hedging under regime shifts. It is designed to be:
 
-The code is organized as a sequence of “phases” that mirror the research pipeline:
+- research grade  
+- reproducible  
+- minimal and readable  
+- easy to run on local machines and Google Colab  
 
-- Phase 1 to 3: environments, state construction, data integrity  
-- Phase 4 to 7: model objectives, benchmark grid, diagnostics  
-- Phase 8: ablation registry, experiment grid, and I–R–E analysis
-
----
-
-## Main features
-
-**Models and objectives**
-
-- HIRM objective with head only gradient alignment penalty  
-- Baselines: ERM, IRM, GroupDRO, VREx  
-- Flexible representation layer with Phi / r factorization and variants
-
-**Environments and data**
-
-- Synthetic Heston and Heston plus Merton jump regimes  
-- Real SPY historical replay with volatility based regime labelling  
-- Explicit regime bands: low, medium, high, crisis
-
-**Diagnostics (I–R–E)**
-
-- Invariance: ISI (with components C1, C2, C3) and IG  
-- Robustness: crisis CVaR, worst environment generalization (WG), volatility ratio (VR), drawdown  
-- Efficiency: mean PnL, efficiency ratio (ER), turnover (TR)
-
-**Experiment management**
-
-- Phase 7 grid runner for benchmarks on methods × datasets × seeds  
-- Phase 8 ablation grid runner and ablation registry  
-- Analysis script that aggregates results into tables and deltas vs full HIRM
+The code supports synthetic model markets and real data experiments and provides diagnostics that link invariance properties to out of sample robustness.
 
 ---
 
-## Repository layout
+## 1. Overview
 
-```text
-hirm/
-  data/             # CSV and episode loaders (SPY, synthetic episodes)
-  diagnostics/      # ISI, IG, robustness, efficiency and reporting utilities
-  envs/             # Synthetic and real environments and regime labelling
-  episodes/         # Episode container and generators
-  experiments/      # Dataset and method registries, ablation registry
-  models/           # InvariantPolicy and supporting modules
-  objectives/       # ERM, IRM, GroupDRO, VREx, HIRM objectives and risk functions
-  state/            # Feature engineering, preprocessing, train/val/test splits
-  training/         # Training loops and utilities
-  utils/            # Config handling, seeding, logging, math helpers
+### 1.1 Problem
 
-analysis/
-  analyze_ablation.py    # Phase 8 ablation result aggregation
+Dynamic hedging strategies are often tuned on stable market regimes. When volatility, liquidity, or correlation structures shift, these strategies can fail exactly when protection is needed most. Traditional hedging pipelines and standard robust machine learning methods tend to regularize features or losses in ways that do not directly control the **hedge decision rule** itself.
 
-configs/
-  base.yaml              # Shared configuration
-  envs/                  # Environment specific configs
-  experiments/           # Phase 7, Phase 8 and tiny test configs
+HIRM aims to stabilize the **mapping from core risk factors to hedge actions** across environments, rather than trying to find fully invariant features or simply optimizing worst case losses.
 
-scripts/
-  run_tiny_experiment.py           # Minimal end to end training demo
-  run_grid.py                      # Phase 7 benchmark grid runner
-  run_ablation_grid.py             # Phase 8 ablation grid runner
-  run_experiment_and_diagnostics.py
-  run_diagnostics.py
-  summarize_diagnostics.py
-  summarize_phase7_results.py
+### 1.2 Method in one paragraph
 
-tests/
-  test_phase1_smoke.py
-  test_phase7_smoke.py
-  test_phase8_smoke.py
-  ... plus unit tests for envs, features, objectives and diagnostics
+HIRM builds on the idea of invariant risk minimization but moves the invariance target from the representation level to the decision level. The model has a representation layer that reads prices, returns, Greeks or proxies, liquidity and inventory. The hedge head maps a small set of core risk factors to hedge actions. HIRM penalizes variation in the gradient of the risk objective with respect to the hedge head across training environments. This encourages a hedge rule that behaves consistently across regimes while still allowing the upstream representation to adapt to changing volatility and liquidity.
 
-README_phase8.md      # Phase specific notes for ablation work
-LICENSE               # MIT License
-pytest.ini
-````
+### 1.3 Main contributions in this repo
+
+- A modular implementation of HIRM and baselines for dynamic hedging:
+  - ERM  
+  - GroupDRO  
+  - V-REx  
+  - IRM style baselines  
+  - Rule based baselines  
+- Synthetic environments with controlled regime shifts for stress testing.  
+- Real data experiments based on SPY with volatility driven regimes.  
+- A suite of diagnostics that quantify:
+  - invariance of the decision rule  
+  - robustness under regime shifts  
+  - efficiency of risk taking vs protection  
+- Ready to run experiment grids and analysis scripts that reproduce the main results.
 
 ---
 
-## Installation
+## 2. Installation
 
-### 1. Set up a Python environment
+### 2.1 Requirements
 
-Recommended Python version: **3.10**. Versions 3.11–3.12 work if you keep NumPy below 2.0, but 3.10 is the most stable across local and Colab.
+- Python 3.10 or 3.11  
+- Recommended: virtual environment  
+- PyTorch 2.0 or newer with CPU or CUDA support  
+
+### 2.2 Setup
+
+From the repository root:
 
 ```bash
-git clone <your-repo-url> hirm-research
-cd hirm-research
-
 python -m venv .venv
-source .venv/bin/activate      # on macOS or Linux
-# .venv\Scripts\activate       # on Windows PowerShell
-```
+source .venv/bin/activate        # Windows: .venv\Scripts\activate
 
-### 2. Install dependencies and the package
-
-Use the pinned requirements to avoid the NumPy/PyTorch incompatibility seen on Python 3.12:
-
-```bash
 pip install -r requirements.txt
 pip install -e .
-```
 
-This installs NumPy 1.26.x, Torch 2.4.1 (CPU build by default), pandas, matplotlib, and the testing stack. The same dependency set is declared in `pyproject.toml`, so `pip install -e .` will work on its own if you prefer.
+pytest -q                        # optional but recommended
+If you are running on Google Colab, see the notebooks in notebooks/ and the Colab section below.
 
----
+3. Quickstart
+3.1 Tiny synthetic smoke test
+Run a fast end to end training loop on a small synthetic environment. This is the simplest way to confirm the installation and pipeline.
 
-## Data
+bash
+Copy code
+python scripts/run_smoke_test.py \
+  --config configs/experiments/smoke_test.yaml \
+  --device cpu
+This will:
 
-### Synthetic data
+construct a small synthetic dataset
 
-Synthetic environments (Heston and Merton jumps) are generated on the fly and do not require external files.
+build a minimal model
 
-### SPY data
+run a short training loop
 
-Real SPY experiments expect a CSV at:
+write metrics and a checkpoint under results/smoke_test/...
 
-```text
-data/raw/spy.csv
-```
+3.2 Minimal HIRM experiment on synthetic data
+Run HIRM on a synthetic environment with clear regime shifts:
 
-The loader is intentionally flexible:
-
-* It uses `csv.DictReader`
-* Looks for a date column such as `Date` or `Timestamp`
-* Looks for a price column among `Adj Close`, `Adj_Close`, `AdjClose`, `Close`, `price`
-
-A minimal CSV example:
-
-```text
-Date,Adj Close
-2010-01-04,111.92
-2010-01-05,112.37
-...
-```
-
-Place the file at `data/raw/spy.csv` before running SPY experiments.
-
----
-
-## Quick start
-
-### 1. Run the tiniest possible experiment
-
-This script uses synthetic data and a small model, useful to check that everything imports and runs.
-
-```bash
-python scripts/run_tiny_experiment.py
-```
-
-You should see a short training log and no errors.
-
----
-
-### 2. Run the Phase 8 smoke test (recommended first run)
-
-This is a small ablation grid on synthetic data only, designed to be light enough to run on a laptop CPU.
-
-```bash
-python scripts/run_ablation_grid.py \
-  --config configs/experiments/phase8.yaml \
+bash
+Copy code
+python scripts/run_full_experiment_suite.py \
+  --config configs/experiments/full_experiment_suite.yaml \
   --datasets synthetic_heston \
-  --ablation_names hirm_full,hirm_no_hgca \
+  --methods hirm_full,erm_baseline \
   --seeds 0 \
   --device cpu \
-  --reduced
-```
-
-This will create a directory such as:
-
-```text
-results/phase8/synthetic_heston/hirm_full/seed_0/
-  config.yaml
-  diagnostics.jsonl
-  train_logs.jsonl
-  metadata.json
-  checkpoint.pt
-```
-
+  --results-dir results/phase9_synthetic_demo
 Then run the analysis script:
 
-```bash
-python analysis/analyze_ablation.py --root_dir results/phase8
-```
+bash
+Copy code
+python analysis/phase9_analysis.py \
+  --root results/phase9_synthetic_demo \
+  --output analysis/phase9_synthetic_demo
+3.3 HIRM on SPY (reduced demo)
+If you have prepared SPY data in data/processed, you can run a reduced real data experiment:
 
-This aggregates metrics across runs and writes summary CSV files with mean, standard deviation and deltas vs `hirm_full`.
+bash
+Copy code
+python scripts/run_full_experiment_suite.py \
+  --config configs/experiments/full_experiment_suite.yaml \
+  --datasets real_spy \
+  --methods hirm_full,erm_baseline \
+  --seeds 0 \
+  --device cuda:0 \
+  --results-dir results/phase9_spy_demo
+Then analyze:
 
----
+bash
+Copy code
+python analysis/phase9_analysis.py \
+  --root results/phase9_spy_demo \
+  --output analysis/phase9_spy_demo
+For full experiment commands, refer to RUNS.md.
 
-## Run Phase 8 in Colab
+4. Experiments
+The repository organizes experiments by purpose rather than by internal phase numbers. The main experiment families are:
 
-The Colab workflow mirrors local usage but pins GPU-friendly wheels and NumPy 1.26 to avoid the `np.number`/`np.object_` import error seen with NumPy 2.x.
+4.1 Baseline benchmark
+Compare HIRM to standard methods on synthetic and real environments.
 
-1. In **Runtime → Change runtime type**, choose **Python 3.10** and **GPU**.
-2. Clone the repo and check out the Phase 8 branch:
+Config:
 
-   ```bash
-   !git clone https://github.com/raei-2748/hirm-research.git
-   %cd hirm-research
-   !git checkout phase8-ablation
-   ```
+text
+Copy code
+configs/experiments/baseline_benchmark.yaml
+Runner:
 
-3. Install dependencies and the package (CUDA 12.1 Torch wheels via the extra index):
+bash
+Copy code
+python scripts/run_baseline_benchmark.py \
+  --config configs/experiments/baseline_benchmark.yaml \
+  --device cuda:0 \
+  --results-dir results/baseline_benchmark
+Typical methods:
 
-   ```bash
-   !pip install -r requirements-colab.txt
-   !pip install -e .
-   ```
+erm_baseline
 
-4. Run the smoke test:
+groupdro_baseline
 
-   ```bash
-   !pytest tests/test_phase8_smoke.py -vv
-   ```
+vrex_baseline
 
-5. Run a reduced ablation on GPU:
+irm_baseline
 
-   ```bash
-   !python scripts/run_ablation_grid.py \
-       --config configs/experiments/phase8.yaml \
-       --datasets synthetic_heston \
-       --ablation_names hirm_full,erm_baseline \
-       --seeds 0 \
-       --device cuda \
-       --reduced
-   ```
+hirm_full
 
-The `requirements-colab.txt` file locks NumPy to `<2.0` and installs the CUDA 12.1 Torch wheels to ensure compatibility in fresh Colab runtimes.
+4.2 Ablation study
+Measure how performance and diagnostics change when HIRM components are removed or altered, such as:
 
----
+no decision level invariance penalty
 
-## Running full experiments
+no representation factorization into mechanistic and adaptive parts
 
-### Phase 7 benchmark grid
+different environment partitions
 
-The Phase 7 grid compares ERM, IRM, GroupDRO, VREx and HIRM across datasets and seeds.
+Config:
 
-Example command:
+text
+Copy code
+configs/experiments/ablation_study.yaml
+Runner:
 
-```bash
-python scripts/run_grid.py \
-  --config configs/experiments/phase7.yaml \
+bash
+Copy code
+python scripts/run_ablation_study.py \
+  --config configs/experiments/ablation_study.yaml \
+  --device cuda:0 \
+  --results-dir results/ablation_study
+Analysis:
+
+bash
+Copy code
+python analysis/analyze_ablation.py \
+  --root results/ablation_study \
+  --output analysis/ablation_summary
+4.3 Full experiment suite
+This is the main research grid used for the paper. It typically covers:
+
+Synthetic Heston type environments
+
+Real SPY episodes with volatility based regimes
+
+Multiple seeds and methods
+
+Config:
+
+text
+Copy code
+configs/experiments/full_experiment_suite.yaml
+Runner:
+
+bash
+Copy code
+python scripts/run_full_experiment_suite.py \
+  --config configs/experiments/full_experiment_suite.yaml \
   --datasets synthetic_heston,real_spy \
-  --methods erm,irm,groupdro,vrex,hirm \
+  --methods erm_baseline,hirm_full,irm_baseline,groupdro_baseline,vrex_baseline \
   --seeds 0,1,2 \
-  --device cuda   # use cpu if no GPU is available
-```
+  --device cuda:0 \
+  --results-dir results/full_suite
+Analysis:
 
-Results are written under:
+bash
+Copy code
+python analysis/phase9_analysis.py \
+  --root results/full_suite \
+  --output analysis/phase9_full
+5. Diagnostics
+HIRM is evaluated not only by returns and risk but also by diagnostics that probe invariance and robustness.
 
-```text
-results/phase7/<dataset>/<method>/seed_<k>/
-```
+5.1 Invariance diagnostics
+Computed in hirm/diagnostics/invariance.py:
 
-You can summarize them with:
+ISI: Invariant Signal Index, a measure of how stable the head gradients are across environments.
 
-```bash
-python scripts/summarize_phase7_results.py --root_dir results/phase7
-```
+IG: Invariance Gap, the dispersion of gradients or decisions across regimes.
 
-### Phase 8 ablation grid
+5.2 Robustness diagnostics
+Computed in hirm/diagnostics/robustness.py and hirm/diagnostics/crisis.py:
 
-The Phase 8 grid sweeps over the ablation registry, for example:
+WG: worst group risk, typically worst environment CVaR.
 
-* `hirm_full`
-* `hirm_no_hgca`
-* `hirm_full_irm`
-* `hirm_env_specific_heads`
-* `hirm_no_split`
-* `hirm_phi_only`
-* `hirm_r_only`
-* `hirm_random_env_labels`
-* `hirm_coarse_env_bands`
-* plus baselines such as `erm_baseline`, `groupdro_baseline`, `vrex_baseline`
+VR: volatility and variance ratios that compare regime risk to baseline.
 
-A typical command:
+Crisis CVaR: loss distribution conditioned on known crisis windows.
 
-```bash
-python scripts/run_ablation_grid.py \
-  --config configs/experiments/phase8.yaml \
-  --datasets synthetic_heston,real_spy \
-  --seeds 0,1,2,3,4,5,6,7,8,9 \
-  --device cuda
-```
+5.3 Efficiency diagnostics
+Computed in hirm/diagnostics/efficiency.py:
 
-You can restrict ablations via `--ablation_names` and use `--reduced` for a cheaper test run.
+ER: efficiency of risk taking (return per unit of downside risk).
 
-Once the grid finishes, run:
+TR: turnover related measures that capture implementation cost.
 
-```bash
-python analysis/analyze_ablation.py --root_dir results/phase8
-```
+5.4 Running diagnostics on a checkpoint
+You can run diagnostics on a specific trained model:
 
-This produces tables of:
+bash
+Copy code
+python scripts/run_diagnostics.py \
+  --config configs/experiments/full_experiment_suite.yaml \
+  --checkpoint results/full_suite/dataset=synthetic_heston/method=hirm_full/seed=0/checkpoint.pt \
+  --results-dir results/diagnostics/hirm_synth_seed0 \
+  --device cpu
+Diagnostics will be saved as JSON and CSV files suitable for the analysis scripts.
 
-* Crisis CVaR
-* WG, VR
-* ISI, IG
-* Mean PnL, ER, TR
-* Deltas relative to `hirm_full` for each dataset and ablation
+6. Data
+6.1 Synthetic environments
+Synthetic environments live under hirm/envs/synthetic/. They allow:
 
-These tables are the raw material for the ablation section of the paper.
+controlled volatility dynamics
 
----
+jump and regime features
 
-## Running tests
+reproducible hedging episodes
 
-To check that everything is wired correctly:
+They are configured via the experiment configs and generated at runtime. No additional files are required beyond the repo and Python dependencies.
 
-```bash
-pytest -q
-```
+6.2 Real SPY data
+Real data experiments use SPY prices and volatility based regimes. The implementation expects preprocessed files, for example:
 
-Key tests:
+data/processed/spy_prices.csv
 
-* `tests/test_phase1_smoke.py` checks basic environment and config plumbing
-* `tests/test_phase7_smoke.py` runs a small Phase 7 grid and diagnostics
-* `tests/test_phase8_smoke.py` runs a reduced ablation grid and the analysis script
-* Other tests cover envs, state features, objectives and diagnostics
+data/processed/spy_regimes.txt
 
----
+Due to data licensing constraints the repository does not distribute vendor data. You must supply or construct compatible datasets. See docs/data_preparation.md for details on formats and scripts if present.
 
-## Performance notes
+7. Repository structure
+A simplified view of the repository:
 
-* Synthetic experiments are light and can run on CPU
-* Real SPY experiments and the full Phase 8 ablation grid are computationally heavier, especially with ISI and IG diagnostics
-* For serious multi seed grids, a GPU (T4, V100, A40, A100, similar) is strongly preferred
+text
+Copy code
+hirm/                     # Core library
+  data/                   # Data loading and preprocessing
+  envs/                   # Synthetic and real market environments
+  episodes/               # Episode generation utilities
+  state/                  # State and feature construction
+  models/                 # Policy architectures and encoders
+  objectives/             # ERM, GroupDRO, V-REx, IRM, HIRM losses
+  training/               # Training loops and utilities
+  diagnostics/            # Invariance and robustness diagnostics
+  experiments/            # Dataset and method registries
+  utils/                  # Shared utilities
 
----
+configs/
+  envs/                   # Environment specific configs
+  models/                 # Model hyperparameters
+  objectives/             # Objective hyperparameters
+  experiments/            # High level experiment configs
 
-## License
+scripts/
+  run_smoke_test.py
+  run_baseline_benchmark.py
+  run_ablation_study.py
+  run_full_experiment_suite.py
+  run_diagnostics.py
+  summarize_phase7_results.py
+  run_ablation_grid.py
 
-This project is licensed under the **MIT License**.
-See the `LICENSE` file for details.
+analysis/
+  phase9_analysis.py      # Full suite analysis
+  analyze_ablation.py     # Ablation analysis
+  ...                     # Additional plotting and reporting
 
-```
-```
+notebooks/
+  hirm_tiny_demo.ipynb
+  hirm_full_suite_reduced.ipynb
+
+docs/
+  developer_notes.md
+  diagnostics_overview.md
+  config_format.md
+  data_preparation.md
+  history/
+    phase7.md
+    phase8.md
+    phase9.md
+
+results/                  # Created at runtime, not tracked by git
+For a more complete description see docs/developer_notes.md.
+
+8. Reproducibility
+The repository is designed to support reproducible experiments.
+
+All main scripts accept a --seed or --seeds flag.
+
+A global seeding utility is called at the start of each run.
+
+Experiment configs are stored as YAML files and copied into each run directory.
+
+Each run directory records:
+
+the config used
+
+the random seeds
+
+command line arguments
+
+timestamps
+
+device information
+
+commit hash if available
+
+A convenience script may be provided as:
+
+bash
+Copy code
+bash scripts/reproduce_full_suite.sh
+which runs the main reduced grids and analysis pipelines end to end. Details are described in RUNS.md.
+
+9. Colab usage
+The notebooks/ directory contains Colab ready notebooks:
+
+hirm_tiny_demo.ipynb
+
+installs the package
+
+runs a tiny synthetic experiment
+
+visualizes hedge behavior vs unhedged portfolio
+
+hirm_full_suite_reduced.ipynb
+
+runs a reduced version of the full experiment suite
+
+reproduces key plots used in the paper
+
+To use Colab:
+
+Open the notebook in Colab.
+
+Run the setup cell that installs dependencies and the package, for example:
+
+python
+Copy code
+!pip install -q -e .
+Follow the instructions inside the notebook.
 
