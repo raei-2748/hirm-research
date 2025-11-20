@@ -2,6 +2,8 @@
 
 This repository implements **HIRM** (Hedging Invariant Risk Minmization), a portfolio hedging framework that learns representations and hedge policies whose **risk gradients are aligned across market regimes**. The codebase supports synthetic stress tests, real SPY data, standard baselines (ERM, IRM, GroupDRO, VREx), diagnostics for invariance, robustness and efficiency, and a full ablation suite for the HIRM architecture.
 
+Maybe renamed to Praesidium in the future.
+
 The code is organized as a sequence of “phases” that mirror the research pipeline:
 
 - Phase 1 to 3: environments, state construction, data integrity  
