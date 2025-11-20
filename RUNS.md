@@ -1,86 +1,76 @@
 # Canonical run commands
 
-This cheat sheet lists the most common end-to-end commands for the HIRM project.
-All commands assume you are in the repository root with a Python 3.10+ virtual environment activated and dependencies installed via `pip install -r requirements.txt && pip install -e .`.
+All commands assume you are in the repository root with Python 3.10+ in an active virtual environment and dependencies installed via `pip install -r requirements.txt && pip install -e .`.
 
 ## Smoke tests
-
-- **Tiny synthetic demo (CPU friendly)**
+- Tiny synthetic smoke (CPU friendly)
   ```bash
-  python scripts/run_tiny_experiment.py --device cpu --results-dir results/tiny_demo
+  python scripts/run_smoke_test.py --config configs/experiments/smoke_test.yaml --device cpu --results-dir results/smoke_demo
+  ```
+- Pytest smoke
+  ```bash
+  pytest tests/test_full_suite_smoke.py -q
   ```
 
-- **Pytest smoke for phase 9**
+## Baseline benchmark
+- Reduced baseline grid
   ```bash
-  pytest tests/test_phase9_smoke.py -q
+  python scripts/run_baseline_benchmark.py \
+    --config configs/experiments/baseline_benchmark.yaml \
+    --datasets synthetic_heston \
+    --methods erm,hirm \
+    --seeds 0 \
+    --device cpu \
+    --results-dir results/baseline_reduced
   ```
 
-## Single runs
-
-- **Synthetic HIRM run with diagnostics**
+## Ablation study
+- Reduced ablation grid
   ```bash
-  python scripts/run_experiment_and_diagnostics.py \
-    --config configs/experiments/phase9.yaml \
-    --device cuda:0 --results-dir outputs/synthetic_demo
+  python scripts/run_ablation_study.py \
+    --config configs/experiments/ablation_study.yaml \
+    --datasets synthetic_heston \
+    --ablation_names hirm_full,erm_baseline \
+    --seeds 0 \
+    --device cpu \
+    --reduced \
+    --results-dir results/ablation_reduced
   ```
 
-- **Diagnostics on an existing checkpoint**
+## Full experiment suite
+- Reduced publication grid
   ```bash
-  python scripts/run_diagnostics.py \
-    --config configs/experiments/phase9.yaml \
-    --checkpoint outputs/synthetic_demo/checkpoints/model_final.pt \
-    --device cpu --results-dir outputs/synthetic_demo/diagnostics
-  ```
-
-## Grid experiments
-
-- **Phase 7 benchmark grid**
-  ```bash
-  python scripts/run_grid.py --config configs/experiments/phase7.yaml --device cuda:0
-  ```
-
-- **Phase 8 ablations (reduced)**
-  ```bash
-  python scripts/run_ablation_grid.py \
-    --config configs/experiments/phase8.yaml \
-    --reduced --device cpu
-  ```
-
-- **Phase 9 paper-aligned grid (reduced for Colab)**
-  ```bash
-  python scripts/run_experiment_grid.py \
-    --config configs/experiments/phase9.yaml \
+  python scripts/run_full_experiment_suite.py \
+    --config configs/experiments/full_experiment_suite.yaml \
     --datasets synthetic_heston,real_spy \
     --methods erm_baseline,hirm_full \
-    --seeds 0 --reduced --device cuda:0 \
-    --results-dir results/phase9_reduced
+    --seeds 0 \
+    --device cpu \
+    --reduced \
+    --results-dir results/full_suite_reduced
   ```
-
-- **Full Phase 9 grid (slow, multiple seeds)**
+- Full grid (slow)
   ```bash
-  python scripts/run_experiment_grid.py \
-    --config configs/experiments/phase9.yaml \
-    --device cuda:0 --results-dir results/phase9
+  python scripts/run_full_experiment_suite.py \
+    --config configs/experiments/full_experiment_suite.yaml \
+    --device cuda:0 \
+    --results-dir results/full_experiment_suite
   ```
 
 ## Analysis utilities
-
-- **Phase 7 summary**
+- Baseline summary
   ```bash
-  python scripts/summarize_phase7_results.py --root results/phase7 --out analysis_outputs/phase7
+  python scripts/summarize_baseline_results.py --root results/baseline_reduced --out analysis_outputs/baseline
   ```
-
-- **Phase 8 ablation analysis**
+- Ablation analysis
   ```bash
-  python analysis/analyze_ablation.py --root_dir results/phase8 --output_dir analysis_outputs/phase8
+  python analysis/analyze_ablation.py --root_dir results/ablation_reduced --output_dir analysis_outputs/ablation
   ```
-
-- **Phase 9 aggregation and plots**
+- Full suite aggregation and plots
   ```bash
-  python analysis/phase9_analysis.py --root_dir results/phase9_reduced --output_dir analysis_outputs/phase9_reduced
+  python analysis/phase9_analysis.py --root_dir results/full_suite_reduced --output_dir analysis_outputs/full_suite_reduced
   ```
 
 ## Colab notebooks
-
 - `notebooks/hirm_tiny_demo.ipynb` – one-click tiny synthetic run and plot.
-- `notebooks/hirm_phase9_reduced.ipynb` – reduced paper grid with diagnostics and plots.
+- `notebooks/hirm_phase9_reduced.ipynb` – reduced full-suite grid with diagnostics and plots (rename pending in history notes).

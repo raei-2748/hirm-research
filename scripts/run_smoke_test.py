@@ -34,7 +34,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--config",
         type=str,
-        default="configs/experiments/tiny_test.yaml",
+        default="configs/experiments/smoke_test.yaml",
         help="Path to the experiment YAML file",
     )
     parser.add_argument(

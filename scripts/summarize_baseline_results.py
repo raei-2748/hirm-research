@@ -1,4 +1,4 @@
-"""Summarize Phase 7 diagnostics into compact CSV/JSON tables."""
+"""Summarize baseline benchmark diagnostics into compact CSV/JSON tables."""
 from __future__ import annotations
 
 import argparse

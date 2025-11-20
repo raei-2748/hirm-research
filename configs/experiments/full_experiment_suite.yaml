@@ -1,0 +1,51 @@
+seeds: [0, 1, 2]
+
+defaults:
+  - base
+  - env: synthetic_heston
+  - model: mlp_small
+
+env:
+  feature_dim: 6
+  action_dim: 2
+
+training:
+  max_epochs: 20
+  batch_size: 64
+  lr: 0.001
+  early_stop_patience: 5
+  deterministic: false
+
+objective:
+  name: hirm
+  invariance_mode: head_only
+  lambda_hirm: 1.0
+
+experiment_grid:
+  methods: [erm_baseline, hirm_full, irm_baseline, groupdro_baseline, vrex_baseline]
+  datasets: [synthetic_heston, real_spy]
+  seeds: [0, 1, 2]
+
+real_spy:
+  data:
+    prices_path: data/processed/spy_prices.csv
+    regimes_path: data/processed/spy_regimes.txt
+    horizon: 60
+    crisis_windows:
+      2018_crisis: ["2018-02-01", "2018-03-31"]
+      2020_covid: ["2020-03-01", "2020-06-30"]
+      2022_selloff: ["2022-01-01", "2022-12-31"]
+  splits:
+    train:
+      start: "2016-01-01"
+      end: "2019-12-31"
+      regimes: ["low", "medium"]
+    val:
+      start: "2018-09-01"
+      end: "2018-12-31"
+      regimes: ["high"]
+    test:
+      start: "2018-01-01"
+      end: "2023-12-31"
+
+

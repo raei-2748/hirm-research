@@ -1,8 +1,8 @@
-# Phase 6 – Diagnostics
+# Diagnostics overview
 
-This repo now ships a full I–R–E (Invariance–Robustness–Efficiency) diagnostic
-suite aligned with the HIRM paper.  The diagnostics live under
-`hirm.diagnostics` and expose pure functional APIs so that experiments, scripts
+This repository ships a full I–R–E (Invariance–Robustness–Efficiency) diagnostic
+suite aligned with the HIRM paper. The diagnostics live under
+`hirm.diagnostics` and expose pure functional APIs so that experiments, scripts,
 and notebooks can import the metrics directly.
 
 ## Metrics

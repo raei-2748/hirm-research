@@ -1,5 +1,7 @@
 import os
 import subprocess
+import os
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -40,10 +42,11 @@ diagnostics:
 @pytest.mark.smoke
 def test_run_grid_and_results(tmp_path):
     cfg_path = _write_minimal_config(tmp_path)
+    results_root = tmp_path / "baseline_results"
     subprocess.check_call(
         [
             "python",
-            "scripts/run_grid.py",
+            "scripts/run_baseline_benchmark.py",
             "--config",
             str(cfg_path),
             "--datasets",
@@ -54,12 +57,14 @@ def test_run_grid_and_results(tmp_path):
             "0",
             "--device",
             "cpu",
+            "--results-dir",
+            str(results_root),
         ],
         env=_subprocess_env(),
     )
 
     for method in ("erm", "hirm"):
-        base = Path("results") / "synthetic_heston" / method / "seed_0"
+        base = results_root / "synthetic_heston" / method / "seed_0"
         assert base.exists()
         for fname in ("train_logs.jsonl", "checkpoint.pt", "diagnostics.jsonl", "config.yaml", "metadata.json"):
             assert (base / fname).exists(), fname
@@ -70,7 +75,7 @@ def test_integrity_checker(tmp_path):
     cfg_path = _write_minimal_config(tmp_path)
     subprocess.check_call([
         "python",
-        "scripts/run_grid.py",
+        "scripts/run_baseline_benchmark.py",
         "--config",
         str(cfg_path),
         "--datasets",
@@ -82,7 +87,10 @@ def test_integrity_checker(tmp_path):
         "--device",
         "cpu",
     ], env=_subprocess_env())
-    subprocess.check_call(["python", "scripts/check_phase7_integrity.py", "--config", str(cfg_path)], env=_subprocess_env())
+    subprocess.check_call(
+        ["python", "scripts/check_baseline_integrity.py", "--config", str(cfg_path)],
+        env=_subprocess_env(),
+    )
 
 
 @pytest.mark.smoke
@@ -90,7 +98,7 @@ def test_summarizer(tmp_path):
     cfg_path = _write_minimal_config(tmp_path)
     subprocess.check_call([
         "python",
-        "scripts/run_grid.py",
+        "scripts/run_baseline_benchmark.py",
         "--config",
         str(cfg_path),
         "--datasets",
@@ -102,7 +110,10 @@ def test_summarizer(tmp_path):
         "--device",
         "cpu",
     ], env=_subprocess_env())
-    subprocess.check_call(["python", "scripts/summarize_phase7_results.py", "--config", str(cfg_path)], env=_subprocess_env())
+    subprocess.check_call(
+        ["python", "scripts/summarize_baseline_results.py", "--config", str(cfg_path)],
+        env=_subprocess_env(),
+    )
     summary_csv = Path("results/summary/synthetic_heston_summary.csv")
     summary_json = Path("results/summary/synthetic_heston_summary.json")
     assert summary_csv.exists()
