@@ -1,6 +1,10 @@
 ## Praesidium: Causally Distilled Structural Invariance
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+[![reproducibility](https://img.shields.io/badge/Reproducible-Yes-brightgreen)]()
+[![python](https://img.shields.io/badge/Python-3.10%2B-blue)]()
+[![pytorch](https://img.shields.io/badge/PyTorch-2.0+-red)]()
+
 
 Note: Planning to rename from HIRM to Praesidium for future extensions
 
