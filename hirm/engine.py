@@ -115,12 +115,58 @@ def _merge_environments(dataset: ExperimentDataset, device: torch.device) -> tup
     return merged, merged["env_ids"]
 
 
-def _compute_diagnostics(trainer, train_ds: ExperimentDataset, test_ds: ExperimentDataset, run_cfg: ExperimentRunConfig) -> Dict[str, float]:
-    """Compute invariance, robustness, and efficiency diagnostics (paper Sections 4--6)."""
+def _compute_diagnostics(
+    trainer,
+    train_ds: ExperimentDataset,
+    test_ds: ExperimentDataset,
+    run_cfg: ExperimentRunConfig
+) -> Dict[str, float]:
+    """Compute invariance, robustness, and efficiency diagnostics."""
 
     device = run_cfg.device
     model = trainer.model
     model.eval()
+
+    # Risk Parity has:
+    #   - no trainable parameters
+    #   - no representation/head
+    #   - no gradients
+    # so invariance diagnostics (ISI / IG) do not apply.
+    
+    if run_cfg.method.lower() == "risk_parity" or \
+       not any(p.requires_grad for p in model.parameters()):
+        
+        diag_cfg = run_cfg.config.diagnostics
+        metrics: Dict[str, float] = {}
+
+        # Crisis CVaR still makes sense for rule-based models
+        if diag_cfg.crisis.enabled:
+            crisis_metrics = _compute_crisis_metrics(
+                test_ds,
+                model,
+                trainer.risk_fn,
+                device,
+                float(diag_cfg.crisis.cvar_alpha),
+            )
+            metrics.update(crisis_metrics)
+
+        # Fill remaining keys with neutral values for consistency
+        metrics.update({
+            "isi": None,
+            "ig": None,
+            "wg": None,
+            "vr": None,
+            "er": None,
+            "tr": None,
+            "metrics/isi/global": 0.0,
+            "metrics/ig/global": 0.0,
+            "metrics/wg": 0.0,
+            "metrics/vr": 0.0,
+            "metrics/er": 0.0,
+            "metrics/tr": 0.0,
+        })
+
+        return metrics
 
     train_batch, train_env_ids = _merge_environments(train_ds, device)
     test_batch, test_env_ids = _merge_environments(test_ds, device)
@@ -130,6 +176,7 @@ def _compute_diagnostics(trainer, train_ds: ExperimentDataset, test_ds: Experime
 
     isi_cfg = run_cfg.config.diagnostics.isi
     invariance_mode = getattr(model, "invariance_mode", "head_only")
+
     head_grads, layer_acts = collect_invariance_signals(
         model,
         train_ds.environments,
@@ -140,6 +187,7 @@ def _compute_diagnostics(trainer, train_ds: ExperimentDataset, test_ds: Experime
     )
 
     diag_cfg = run_cfg.config.diagnostics
+
     diagnostics_inputs = {
         "invariance_inputs": {
             "isi_inputs": {
@@ -185,6 +233,7 @@ def _compute_diagnostics(trainer, train_ds: ExperimentDataset, test_ds: Experime
     }
 
     raw_metrics = compute_all_diagnostics(**diagnostics_inputs)
+
     metrics = {
         "isi": raw_metrics.get("ISI", 0.0),
         "ig": raw_metrics.get("IG", 0.0),
@@ -202,7 +251,13 @@ def _compute_diagnostics(trainer, train_ds: ExperimentDataset, test_ds: Experime
     }
 
     if diag_cfg.crisis.enabled:
-        crisis_metrics = _compute_crisis_metrics(test_ds, model, trainer.risk_fn, device, float(diag_cfg.crisis.cvar_alpha))
+        crisis_metrics = _compute_crisis_metrics(
+            test_ds,
+            model,
+            trainer.risk_fn,
+            device,
+            float(diag_cfg.crisis.cvar_alpha),
+        )
         metrics.update(crisis_metrics)
 
     return metrics
