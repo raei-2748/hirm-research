@@ -184,9 +184,11 @@ class RuleBasedTrainer(Trainer):
         cfg.objective.name = "erm"
         self.objective = build_objective(cfg, device=device)
         self.risk_fn = build_risk_function(cfg.objective)
-        self.optimizer = torch.optim.SGD(self.model.parameters(), lr=0.0)
+        
         self.train_data: ExperimentDataset | None = None
         self.val_data: ExperimentDataset | None = None
+        params = list(self.model.parameters())
+        self.optimizer = torch.optim.SGD(params, lr=0.0) if params else None
 
     def set_datasets(self, *, train: ExperimentDataset, val: ExperimentDataset) -> None:
         self.train_data = train.to_device(self.run_cfg.device)
