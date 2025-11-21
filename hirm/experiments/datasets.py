@@ -5,6 +5,8 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Callable, Dict, Iterable, Mapping, Sequence
 
+import math
+
 import numpy as np
 import torch
 
@@ -145,6 +147,93 @@ def _build_env_batch(
     env_ids = torch.full_like(data["env_ids"], env_id)
     data["env_ids"] = env_ids
     return data
+
+
+def _pad_features(values: list[float], target_dim: int) -> list[float]:
+    if target_dim <= 0:
+        return values
+    if len(values) >= target_dim:
+        return values[:target_dim]
+    return values + [0.0] * (target_dim - len(values))
+
+
+def _sample_next_state(current: int, num_states: int, stay_prob: float, generator: torch.Generator) -> int:
+    stay_prob = float(stay_prob)
+    num_states = max(1, int(num_states))
+    if num_states == 1:
+        return current
+    probs = torch.full((num_states,), (1.0 - stay_prob) / float(num_states - 1))
+    probs[current] = stay_prob
+    next_state = torch.multinomial(probs, 1, generator=generator)
+    return int(next_state.item())
+
+
+def _generate_synthetic_hard_env(
+    *,
+    env_id: int,
+    env_name: str,
+    horizon: int,
+    num_paths: int,
+    dt: float,
+    regimes: Sequence[Mapping[str, float]],
+    start_state: int,
+    stay_prob: float,
+    spurious_corr: float,
+    spurious_noise: float,
+    feature_dim: int,
+    action_dim: int,
+    generator: torch.Generator,
+) -> Dict[str, torch.Tensor]:
+    features: list[list[float]] = []
+    hedge_returns: list[list[float]] = []
+    base_pnl: list[float] = []
+    env_ids: list[int] = []
+
+    num_regimes = len(regimes)
+    dt_sqrt = math.sqrt(float(dt))
+    for _ in range(num_paths):
+        state = int(start_state)
+        for step in range(horizon):
+            params = regimes[state]
+            drift = float(params.get("drift", 0.0))
+            vol = float(params.get("vol", 0.1))
+            jump_prob = float(params.get("jump_prob", 0.0))
+            jump_scale = float(params.get("jump_scale", 0.0))
+
+            base_shock = torch.randn(1, generator=generator).item()
+            ret = drift * dt + vol * dt_sqrt * base_shock
+            if torch.rand(1, generator=generator).item() < jump_prob:
+                ret += torch.randn(1, generator=generator).item() * jump_scale
+
+            realized_vol = abs(ret) / max(dt_sqrt, 1e-6) + vol
+            spurious = spurious_corr * ret + spurious_noise * torch.randn(1, generator=generator).item()
+
+            one_hot = [1.0 if state == idx else 0.0 for idx in range(num_regimes)]
+            time_frac = float(step) / float(max(1, horizon))
+            feat_vec = _pad_features(
+                [realized_vol, *one_hot, time_frac, spurious],
+                target_dim=feature_dim,
+            )
+
+            hedge_row = [ret]
+            if action_dim > 1:
+                hedge_row.append(-ret)
+                if action_dim > 2:
+                    hedge_row.extend([0.0] * (action_dim - 2))
+
+            features.append(feat_vec)
+            hedge_returns.append(hedge_row[:action_dim])
+            base_pnl.append(ret)
+            env_ids.append(env_id)
+
+            state = _sample_next_state(state, num_regimes, stay_prob, generator)
+
+    return {
+        "features": torch.tensor(features, dtype=torch.float32),
+        "hedge_returns": torch.tensor(hedge_returns, dtype=torch.float32),
+        "base_pnl": torch.tensor(base_pnl, dtype=torch.float32),
+        "env_ids": torch.tensor(env_ids, dtype=torch.long),
+    }
 
 
 def _parse_date(value: str | datetime) -> datetime:
@@ -392,6 +481,59 @@ def build_real_spy_dataset(cfg: Mapping[str, object], split: str, seed: int) -> 
     return ExperimentDataset(environments=envs)
 
 
+@register_dataset("synthetic_hard")
+def build_synthetic_hard_dataset(cfg: Mapping[str, object], split: str, seed: int) -> ExperimentDataset:
+    env_cfg = getattr(cfg, "env", {}) if not isinstance(cfg, Mapping) else cfg.get("env", {})
+    feature_dim = int(env_cfg.get("feature_dim", 6)) if isinstance(env_cfg, Mapping) else int(getattr(env_cfg, "feature_dim", 6))
+    action_dim = int(env_cfg.get("action_dim", 2)) if isinstance(env_cfg, Mapping) else int(getattr(env_cfg, "action_dim", 2))
+
+    horizon = int(env_cfg.get("horizon", 40)) if isinstance(env_cfg, Mapping) else int(getattr(env_cfg, "horizon", 40))
+    dt = float(env_cfg.get("dt", 1.0)) if isinstance(env_cfg, Mapping) else float(getattr(env_cfg, "dt", 1.0))
+    transition_cfg = env_cfg.get("transition", {}) if isinstance(env_cfg, Mapping) else getattr(env_cfg, "transition", {})
+    stay_prob = float(transition_cfg.get("stay_prob", getattr(env_cfg, "stay_prob", 0.85)))
+
+    n_paths_cfg = env_cfg.get("n_paths_per_env", {}) if isinstance(env_cfg, Mapping) else getattr(env_cfg, "n_paths_per_env", {})
+    n_paths = int(n_paths_cfg.get(split, n_paths_cfg.get("default", 128)) or 128)
+
+    spurious_cfg = env_cfg.get("spurious", {}) if isinstance(env_cfg, Mapping) else getattr(env_cfg, "spurious", {})
+    spurious_corr = float(
+        spurious_cfg.get("train_correlation" if split == "train" else "test_correlation", spurious_cfg.get("train_correlation", 0.7))
+    )
+    spurious_noise = float(spurious_cfg.get("noise", 0.1))
+
+    regimes_cfg = env_cfg.get("regimes", []) if isinstance(env_cfg, Mapping) else getattr(env_cfg, "regimes", [])
+    name_to_regime = {str(r.get("name", f"regime_{idx}")): r for idx, r in enumerate(regimes_cfg)}
+    splits_cfg = env_cfg.get("splits", {}) if isinstance(env_cfg, Mapping) else getattr(env_cfg, "splits", {})
+    split_regimes = splits_cfg.get(split, {}).get("regimes", []) if isinstance(splits_cfg, Mapping) else []
+    active_regimes = split_regimes or list(name_to_regime)
+
+    generator = torch.Generator().manual_seed(seed + (0 if split == "train" else 7))
+    envs: Dict[str, Dict[str, torch.Tensor]] = {}
+
+    for env_id, regime_name in enumerate(active_regimes):
+        start_state = list(name_to_regime).index(str(regime_name)) if str(regime_name) in name_to_regime else env_id % max(1, len(name_to_regime))
+        batch = _generate_synthetic_hard_env(
+            env_id=env_id,
+            env_name=str(regime_name),
+            horizon=horizon,
+            num_paths=n_paths,
+            dt=dt,
+            regimes=list(name_to_regime.values()),
+            start_state=start_state,
+            stay_prob=stay_prob,
+            spurious_corr=spurious_corr,
+            spurious_noise=spurious_noise,
+            feature_dim=feature_dim,
+            action_dim=action_dim,
+            generator=generator,
+        )
+        envs[str(regime_name)] = batch
+
+    scheme = getattr(getattr(cfg, "env", None), "label_scheme", "vol_bands")
+    envs = _apply_env_label_scheme(envs, scheme=scheme, seed=seed)
+    return ExperimentDataset(environments=envs)
+
+
 __all__ = [
     "ExperimentDataset",
     "DatasetBuilder",
@@ -399,5 +541,6 @@ __all__ = [
     "get_dataset_builder",
     "list_datasets",
     "build_synthetic_heston_dataset",
+    "build_synthetic_hard_dataset",
     "build_real_spy_dataset",
 ]

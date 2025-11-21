@@ -1,0 +1,74 @@
+methods: ["erm", "hirm"]
+datasets: ["synthetic_heston", "synthetic_hard", "real_spy"]
+seeds: [0, 1, 2, 3, 4]
+
+objective:
+  name: erm
+
+defaults:
+  - base
+  - env: synthetic_hard
+  - model: mlp_medium
+
+env:
+  feature_dim: 6
+  action_dim: 2
+
+training:
+  max_epochs: 60
+  batch_size: 96
+  lr: 0.001
+  early_stop_patience: 12
+  deterministic: false
+  episodes_per_env: 3
+  num_steps: 5
+
+diagnostics:
+  enabled: true
+  isi:
+    probe_layers: ["representation", "head"]
+    tau_R: 0.05
+    tau_C: 1.0
+    tau_IG: 0.05
+    alpha_components: [1.0, 1.0, 1.0]
+    eps: 1.0e-08
+    cov_regularizer: 1.0e-04
+    grad_norm_eps: 1.0e-12
+  wg:
+    alpha: 0.05
+    num_grid: 1000
+  vr:
+    eps: 1.0e-08
+  er:
+    cvar_alpha: 0.05
+    eps: 1.0e-08
+    mode: "loss"
+  crisis:
+    enabled: true
+    cvar_alpha: 0.05
+    seed_offset: 2
+  tr:
+    eps: 1.0e-08
+    treat_first_step: drop
+
+real_spy:
+  data:
+    prices_path: data/processed/spy_prices.csv
+    regimes_path: data/processed/spy_regimes.txt
+    horizon: 60
+    crisis_windows:
+      2018_crisis: ["2018-02-01", "2018-03-31"]
+      2020_covid: ["2020-03-01", "2020-06-30"]
+      2022_selloff: ["2022-01-01", "2022-12-31"]
+  splits:
+    train:
+      start: "2016-01-01"
+      end: "2019-12-31"
+      regimes: ["low", "medium"]
+    val:
+      start: "2018-09-01"
+      end: "2018-12-31"
+      regimes: ["high"]
+    test:
+      start: "2018-01-01"
+      end: "2023-12-31"

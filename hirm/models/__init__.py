@@ -40,7 +40,7 @@ def build_model(cfg_model: Any, input_dim: int, action_dim: int) -> InvariantPol
             cfg_model.r_network.hidden_dims = []
 
     name = getattr(cfg_model, "name", "invariant_policy")
-    if name not in {"mlp", "mlp_small", "invariant_policy", "invariant_mlp"}:
+    if name not in {"mlp", "mlp_small", "mlp_medium", "invariant_policy", "invariant_mlp"}:
         raise ValueError(f"Unsupported model name '{name}'")
     return InvariantPolicy(cfg_model, input_dim=input_dim, action_dim=action_dim)
 

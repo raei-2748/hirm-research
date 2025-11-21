@@ -1,0 +1,38 @@
+name: synthetic_hard
+feature_dim: 6
+action_dim: 2
+horizon: 40
+dt: 1.0
+n_paths_per_env:
+  train: 192
+  val: 128
+  test: 192
+regimes:
+  - name: stable
+    drift: 0.01
+    vol: 0.08
+    jump_prob: 0.01
+    jump_scale: 0.02
+  - name: turbulent
+    drift: -0.005
+    vol: 0.18
+    jump_prob: 0.03
+    jump_scale: 0.05
+  - name: crisis
+    drift: -0.025
+    vol: 0.3
+    jump_prob: 0.08
+    jump_scale: 0.1
+transition:
+  stay_prob: 0.85
+spurious:
+  train_correlation: 0.85
+  test_correlation: -0.45
+  noise: 0.12
+splits:
+  train:
+    regimes: [stable, turbulent]
+  val:
+    regimes: [turbulent]
+  test:
+    regimes: [stable, turbulent, crisis]
