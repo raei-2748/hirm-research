@@ -2,6 +2,9 @@ methods: ["erm", "irm", "groupdro", "vrex", "hirm", "risk_parity"]
 datasets: ["synthetic_heston", "real_spy"]
 seeds: [0, 1, 2]
 
+objective:
+  name: erm
+
 defaults:
   - base
   - env: synthetic_heston
