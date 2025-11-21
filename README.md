@@ -1,6 +1,7 @@
 # Robust Generalization for Hedging under Crisis Regime Shifts
+<img width="875" height="178" alt="Screenshot 2025-11-21 at 9 41 38 PM" src="https://github.com/user-attachments/assets/b655545d-fdf2-4bad-8551-b6fcf4927e65" />
 
-This repository contains the reference implementation for **HIRM (Hedging with Invariant Risk Minimization)**. 
+This repository contains the reference implementation for **HIRM (Hedging with Invariant Risk Minimization)** as the core engine of our architecture system **Praesidium**.
 
 HIRM addresses the failure of standard Deep Hedging models during market crises. While standard ERM models overfit to low-volatility regime shortcuts, HIRM enforces **decision-level invariance**: it constrains the *hedge ratio's sensitivity to risk* to be stable across market environments, while allowing the internal representation to remain regime-adaptive.
 
