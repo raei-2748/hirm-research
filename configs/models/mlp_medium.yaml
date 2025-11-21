@@ -1,0 +1,9 @@
+name: invariant_mlp
+representation:
+  hidden_dims: [64, 64, 32]
+  activation: relu
+  dropout: 0.1
+head:
+  hidden_dims: [64, 32]
+  activation: relu
+  dropout: 0.1

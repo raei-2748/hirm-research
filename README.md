@@ -22,23 +22,33 @@ pip install -r requirements.txt
 pip install -e .
 ```
 
-### 2. Run the Benchmark (Table 2 in Paper)
-Compare ERM, GroupDRO, V-REx, and HIRM on Synthetic Heston data.
+### 2. Benchmarks
+
+**Phase 1 – Baseline benchmark** (Synthetic Heston + SPY, `mlp_small`):
 ```bash
 python scripts/run_grid.py \
   --config configs/experiments/baseline_benchmark.yaml \
   --mode benchmark \
-  --datasets synthetic_heston \
-  --device cuda:0
+  --results-dir results/baseline_benchmark \
+  --device cuda
 ```
 
-### 3. Run Real-World SPY Analysis
-Requires `data/processed/spy_prices.csv`. 
+**Phase 2 – Hard benchmark** (Synthetic Hard + SPY, `mlp_medium`):
 ```bash
 python scripts/run_grid.py \
-  --config configs/experiments/baseline_benchmark.yaml \
+  --config configs/experiments/hard_benchmark.yaml \
   --mode benchmark \
-  --datasets real_spy
+  --results-dir results/hard_benchmark \
+  --device cuda
+```
+
+Both grids emit `train_logs.jsonl`, `diagnostics.jsonl`, `checkpoint.pt`, `config.json`, and `metadata.json` under
+`results/<dataset>/<method>/seed_<N>`.
+
+### 3. Smoke test
+To sanity-check the pipeline (ERM + HIRM) on a tiny synthetic run:
+```bash
+python scripts/run_smoke_benchmark.py --device cpu
 ```
 
 ### 4. Diagnostics & Plotting
