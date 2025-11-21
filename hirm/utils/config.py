@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Tuple
+from typing import Any, Dict, Iterable
+
+import yaml
 
 
 class ConfigNode(dict):
@@ -55,93 +57,20 @@ def to_plain_dict(config: Any) -> Any:
     return _unwrap_value(config)
 
 
-def _parse_scalar(value: str) -> Any:
-    lowered = value.lower()
-    if lowered in {"true", "false"}:
-        return lowered == "true"
-    try:
-        if "." in value:
-            return float(value)
-        return int(value)
-    except ValueError:
-        stripped = value.strip("'\"")
-        return stripped
-
-
-def _parse_list(lines: List[str], start: int, indent: int) -> Tuple[List[Any], int]:
-    items: List[Any] = []
-    idx = start
-    while idx < len(lines):
-        line = lines[idx]
-        stripped = line.strip()
-        if not stripped:
-            idx += 1
-            continue
-        current_indent = len(line) - len(line.lstrip(" "))
-        if current_indent < indent or not stripped.startswith("- "):
-            break
-        value = stripped[2:].strip()
-        idx += 1
-        if value:
-            if ":" in value:
-                key, remainder = value.split(":", 1)
-                key = key.strip()
-                remainder = remainder.strip()
-                if remainder:
-                    items.append({key: _parse_scalar(remainder)})
-                else:
-                    nested, idx = _parse_block(lines, idx, indent + 2)
-                    items.append({key: nested})
-            else:
-                items.append(_parse_scalar(value))
-        else:
-            nested, idx = _parse_block(lines, idx, indent + 2)
-            items.append(nested)
-    return items, idx
-
-
-def _parse_block(lines: List[str], start: int, indent: int) -> Tuple[Dict[str, Any], int]:
-    data: Dict[str, Any] = {}
-    idx = start
-    while idx < len(lines):
-        line = lines[idx]
-        stripped = line.strip()
-        if not stripped or stripped.startswith("#"):
-            idx += 1
-            continue
-        current_indent = len(line) - len(line.lstrip(" "))
-        if current_indent < indent:
-            break
-        if ":" not in stripped:
-            idx += 1
-            continue
-        key, value = stripped.split(":", 1)
-        key = key.strip()
-        value = value.strip()
-        idx += 1
-        if value:
-            data[key] = _parse_scalar(value)
-        else:
-            if idx < len(lines):
-                next_line = lines[idx]
-                next_indent = len(next_line) - len(next_line.lstrip(" "))
-                next_stripped = next_line.strip()
-                if next_stripped.startswith("- ") and next_indent >= indent + 2:
-                    lst, idx = _parse_list(lines, idx, indent + 2)
-                    data[key] = lst
-                else:
-                    nested, idx = _parse_block(lines, idx, indent + 2)
-                    data[key] = nested
-            else:
-                data[key] = {}
-    return data, idx
-
-
 def _read_yaml(path: Path) -> Dict[str, Any]:
-    text = path.read_text(encoding="utf-8")
-    lines = text.splitlines()
-    parsed, _ = _parse_block(lines, 0, 0)
-    return parsed
+    """Parse a YAML file into native Python objects.
+
+    The previous implementation used a bespoke, line-oriented parser that
+    treated inline sequences and mappings as raw strings (for example,
+    ``[1, 2, 3]`` became the literal string "[1, 2, 3]"). This caused the merged
+    configuration to surface stringified lists and dictionaries, which broke
+    downstream consumers expecting real Python containers. Delegating parsing to
+    ``yaml.safe_load`` restores correct typing for lists, dictionaries, and
+    numeric values while still maintaining safe loading semantics.
+    """
+
+    parsed = yaml.safe_load(path.read_text(encoding="utf-8"))
+    return parsed or {}
 
 
 def _merge_dicts(base: Dict[str, Any], override: Dict[str, Any]) -> Dict[str, Any]:
