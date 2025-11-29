@@ -123,6 +123,10 @@ def main() -> None:
     metrics = [m.strip() for m in args.metrics.split(",") if m.strip()]
     root_dir = args.root_alias or args.root
     df = load_ablation_results(root_dir)
+    # Ensure all values are numeric, coercing errors to NaN
+    df["value"] = pd.to_numeric(df["value"], errors="coerce")
+    # Drop rows where value could not be converted
+    df = df.dropna(subset=["value"])
     summary = summarize_metrics(df)
     summary_with_delta = add_deltas(summary)
     out_path = Path(args.output)

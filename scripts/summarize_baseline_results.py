@@ -6,7 +6,7 @@ import json
 import sys
 from pathlib import Path
 from statistics import mean, pstdev
-from typing import Dict, Iterable, List, Tuple
+from typing import Any, Dict, Iterable, List, Tuple
 
 import csv
 
@@ -49,6 +49,7 @@ def summarize_dataset(dataset: str, methods: Iterable[str], seeds: Iterable[int]
         for seed in seeds:
             diag_path = root / dataset / method / f"seed_{seed}" / "diagnostics.jsonl"
             if not diag_path.exists():
+                print(f"DEBUG: Missing {diag_path}")
                 continue
             entries.extend(list(_load_diagnostics(diag_path)))
         if not entries:
