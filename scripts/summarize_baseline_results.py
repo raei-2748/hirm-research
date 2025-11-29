@@ -133,7 +133,6 @@ def main() -> None:
     root = Path(args.results_root)
 
     for dataset in datasets:
-        print(f"DEBUG: Processing dataset: {dataset}", file=sys.stderr)
         records, summary_dict = summarize_dataset(dataset, methods, seeds, root)
         write_summary(dataset, records, root)
         print(f"Summarized {dataset}: {len(records)} method entries")

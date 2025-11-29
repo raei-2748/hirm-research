@@ -65,12 +65,10 @@ def main() -> None:
                     ok, details = check_run(dataset, method, seed, root)
                     prefix = "[OK]" if ok else "[MISSING]"
                     print(f"{prefix} {dataset}/{method}/seed_{seed}")
-                    if not ok:
-                        all_ok = False
-                        base = root / dataset / method / f"seed_{seed}"
-                        print(f"  Checking path: {base.resolve()}", file=sys.stderr)
-                        missing = [k for k, v in details.items() if not v]
-                        print(f"  Missing: {', '.join(missing)}")
+                if not ok:
+                    all_ok = False
+                    missing = [k for k, v in details.items() if not v]
+                    print(f"  Missing: {', '.join(missing)}")
         if not all_ok:
             print("Integrity check failed: Missing required files", file=sys.stderr)
             sys.exit(1)

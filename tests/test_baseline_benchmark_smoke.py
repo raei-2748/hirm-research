@@ -99,14 +99,10 @@ def test_integrity_checker(tmp_path):
         ],
         env=_subprocess_env(),
     )
-    try:
-        subprocess.check_call(
-            [sys.executable, "scripts/check_baseline_integrity.py", "--config", str(cfg_path), "--results-root", str(results_dir)],
-            env=_subprocess_env(),
-        )
-    except subprocess.CalledProcessError:
-        print(f"DEBUG: Integrity check failed. Results dir contents: {list(results_dir.rglob('*'))}", file=sys.stderr)
-        raise
+    subprocess.check_call(
+        [sys.executable, "scripts/check_baseline_integrity.py", "--config", str(cfg_path), "--results-root", str(results_dir)],
+        env=_subprocess_env(),
+    )
 
 
 @pytest.mark.smoke
@@ -141,10 +137,6 @@ def test_summarizer(tmp_path):
     summary_csv = results_dir / "summary" / "synthetic_heston_summary.csv"
     summary_json = results_dir / "summary" / "synthetic_heston_summary.json"
     
-    # Debug info on failure
-    if not summary_csv.exists():
-        print(f"DEBUG: Results dir contents: {list(results_dir.rglob('*'))}", file=sys.stderr)
-        
     assert summary_csv.exists(), f"Summary CSV missing. Contents: {list(results_dir.rglob('*'))}"
     assert summary_json.exists(), "Summary JSON missing"
     assert summary_csv.stat().st_size > 0, f"Summary CSV is empty. Content: {summary_csv.read_text() if summary_csv.exists() else 'N/A'}"
