@@ -99,10 +99,14 @@ def test_integrity_checker(tmp_path):
         ],
         env=_subprocess_env(),
     )
-    subprocess.check_call(
-        [sys.executable, "scripts/check_baseline_integrity.py", "--config", str(cfg_path), "--results-root", str(results_dir)],
-        env=_subprocess_env(),
-    )
+    try:
+        subprocess.check_call(
+            [sys.executable, "scripts/check_baseline_integrity.py", "--config", str(cfg_path), "--results-root", str(results_dir)],
+            env=_subprocess_env(),
+        )
+    except subprocess.CalledProcessError:
+        print(f"DEBUG: Integrity check failed. Results dir contents: {list(results_dir.rglob('*'))}", file=sys.stderr)
+        raise
 
 
 @pytest.mark.smoke

@@ -25,6 +25,7 @@ CONFIG_CANDIDATES = ("config.json", "config.yaml")
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", type=str, required=True)
+    parser.add_argument("--results-root", type=str, default="results")
     return parser.parse_args()
 
 
@@ -41,8 +42,8 @@ def _resolve_items(cfg) -> Tuple[Iterable[str], Iterable[str], Iterable[int]]:
     return methods, datasets, seeds
 
 
-def check_run(dataset: str, method: str, seed: int) -> Tuple[bool, Dict[str, bool]]:
-    base = Path("results") / dataset / method / f"seed_{seed}"
+def check_run(dataset: str, method: str, seed: int, root: Path) -> Tuple[bool, Dict[str, bool]]:
+    base = root / dataset / method / f"seed_{seed}"
     status = {}
     for fname in REQUIRED_FILES:
         status[fname] = (base / fname).exists()
@@ -51,22 +52,32 @@ def check_run(dataset: str, method: str, seed: int) -> Tuple[bool, Dict[str, boo
 
 
 def main() -> None:
-    args = parse_args()
-    cfg = load_config(args.config)
-    methods, datasets, seeds = _resolve_items(cfg)
-    all_ok = True
-    for dataset in datasets:
-        for method in methods:
-            for seed in seeds:
-                ok, details = check_run(dataset, method, seed)
-                prefix = "[OK]" if ok else "[MISSING]"
-                print(f"{prefix} {dataset}/{method}/seed_{seed}")
-                if not ok:
-                    all_ok = False
-                    missing = [k for k, v in details.items() if not v]
-                    print(f"  Missing: {', '.join(missing)}")
-    if not all_ok:
-        raise SystemExit(1)
+    import traceback
+    try:
+        args = parse_args()
+        cfg = load_config(args.config)
+        methods, datasets, seeds = _resolve_items(cfg)
+        root = Path(args.results_root)
+        all_ok = True
+        for dataset in datasets:
+            for method in methods:
+                for seed in seeds:
+                    ok, details = check_run(dataset, method, seed, root)
+                    prefix = "[OK]" if ok else "[MISSING]"
+                    print(f"{prefix} {dataset}/{method}/seed_{seed}")
+                    if not ok:
+                        all_ok = False
+                        base = root / dataset / method / f"seed_{seed}"
+                        print(f"  Checking path: {base.resolve()}", file=sys.stderr)
+                        missing = [k for k, v in details.items() if not v]
+                        print(f"  Missing: {', '.join(missing)}")
+        if not all_ok:
+            print("Integrity check failed: Missing required files", file=sys.stderr)
+            sys.exit(1)
+    except Exception as e:
+        print(f"ERROR: Integrity check failed with exception: {e}", file=sys.stderr)
+        traceback.print_exc()
+        sys.exit(1)
 
 
 if __name__ == "__main__":
