@@ -114,6 +114,14 @@ def write_summary(dataset: str, records: List[Dict], root: Path):
             writer.writerows(records)
         with json_path.open("w", encoding="utf-8") as handle:
             json.dump(records, handle, indent=2)
+    else:
+        # Create empty files with proper structure
+        with csv_path.open("w", newline="", encoding="utf-8") as csvfile:
+            # Write a header with expected columns
+            writer = csv.DictWriter(csvfile, fieldnames=["dataset", "method", "num_seeds"])
+            writer.writeheader()
+        with json_path.open("w", encoding="utf-8") as handle:
+            json.dump([], handle, indent=2)
 
 
 def main() -> None:
