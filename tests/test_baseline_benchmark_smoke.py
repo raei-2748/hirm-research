@@ -1,5 +1,6 @@
 import os
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -31,6 +32,9 @@ diagnostics:
   enabled: true
   crisis:
     enabled: false
+datasets: [synthetic_heston]
+methods: [erm]
+seeds: [0]
 """
     path = tmp_path / "config_smoke.yaml"
     path.write_text(yaml_text)
@@ -43,7 +47,7 @@ def test_run_grid_and_results(tmp_path):
     results_root = tmp_path / "baseline_results"
     subprocess.check_call(
         [
-            "python",
+            sys.executable,
             "scripts/run_grid.py",
             "--config",
             str(cfg_path),
@@ -73,9 +77,10 @@ def test_run_grid_and_results(tmp_path):
 @pytest.mark.smoke
 def test_integrity_checker(tmp_path):
     cfg_path = _write_minimal_config(tmp_path)
+    results_dir = tmp_path / "results"
     subprocess.check_call(
         [
-            "python",
+            sys.executable,
             "scripts/run_grid.py",
             "--config",
             str(cfg_path),
@@ -90,12 +95,12 @@ def test_integrity_checker(tmp_path):
             "--device",
             "cpu",
             "--results-dir",
-            "results",
+            str(results_dir),
         ],
         env=_subprocess_env(),
     )
     subprocess.check_call(
-        ["python", "scripts/check_baseline_integrity.py", "--config", str(cfg_path)],
+        [sys.executable, "scripts/check_baseline_integrity.py", "--config", str(cfg_path), "--results-root", str(results_dir)],
         env=_subprocess_env(),
     )
 
@@ -103,9 +108,10 @@ def test_integrity_checker(tmp_path):
 @pytest.mark.smoke
 def test_summarizer(tmp_path):
     cfg_path = _write_minimal_config(tmp_path)
+    results_dir = tmp_path / "results"
     subprocess.check_call(
         [
-            "python",
+            sys.executable,
             "scripts/run_grid.py",
             "--config",
             str(cfg_path),
@@ -120,17 +126,22 @@ def test_summarizer(tmp_path):
             "--device",
             "cpu",
             "--results-dir",
-            "results",
+            str(results_dir),
         ],
         env=_subprocess_env(),
     )
     subprocess.check_call(
-        ["python", "scripts/summarize_baseline_results.py", "--config", str(cfg_path)],
+        [sys.executable, "scripts/summarize_baseline_results.py", "--config", str(cfg_path), "--results-root", str(results_dir)],
         env=_subprocess_env(),
     )
-    summary_csv = Path("results/summary/synthetic_heston_summary.csv")
-    summary_json = Path("results/summary/synthetic_heston_summary.json")
-    assert summary_csv.exists()
-    assert summary_json.exists()
-    assert summary_csv.stat().st_size > 0
-    assert summary_json.stat().st_size > 0
+    summary_csv = results_dir / "summary" / "synthetic_heston_summary.csv"
+    summary_json = results_dir / "summary" / "synthetic_heston_summary.json"
+    
+    # Debug info on failure
+    if not summary_csv.exists():
+        print(f"DEBUG: Results dir contents: {list(results_dir.rglob('*'))}", file=sys.stderr)
+        
+    assert summary_csv.exists(), f"Summary CSV missing. Contents: {list(results_dir.rglob('*'))}"
+    assert summary_json.exists(), "Summary JSON missing"
+    assert summary_csv.stat().st_size > 0, f"Summary CSV is empty. Content: {summary_csv.read_text() if summary_csv.exists() else 'N/A'}"
+    assert summary_json.stat().st_size > 0, "Summary JSON is empty"
